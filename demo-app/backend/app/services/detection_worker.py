@@ -2,7 +2,8 @@ import asyncio
 import json
 import structlog
 from app.services.detection_service import detection_service
-from app.core.observation_store import observation_store, REDIS_ANOMALIES_KEY, REDIS_STATS_PREFIX
+from app.services.healing_service import healing_service
+from app.core.observation_store import observation_store, REDIS_ANOMALIES_KEY, REDIS_STATS_PREFIX, REDIS_HEALING_KEY
 from app.core.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -10,6 +11,9 @@ logger = structlog.get_logger(__name__)
 # Key for the pending detection queue
 DETECTION_QUEUE_KEY = "observation:pending_detection"
 
+#infinite loop is a part of detection layer to ensure API stays fast.
+#infinite detection loop- when worker pops a log out of a redis queue and detection layer says that it is a 
+#due to this loop the backend wont be waiting for a crash, then calc anomaly score and then restart the server.
 async def detection_worker_loop():
     """
     Background loop that pops logs from Redis and processes them
@@ -41,12 +45,24 @@ async def detection_worker_loop():
             log.update(detection_result)
             enriched_json = json.dumps(log)
             
-            # 3. Store Anomalies & Stats
+            # 3. Handle Healing & Store Anomalies
             if detection_result["is_anomaly"]:
+                # --- HEALING LAYER ---
+                action = healing_service.decide_healing_action(log)
+                healing_result = await healing_service.execute_healing(action)
+                log["healing"] = healing_result
+                enriched_json = json.dumps(log)
+                healing_json = json.dumps(healing_result)
+
                 async with r.pipeline(transaction=True) as pipe:
                     # Append to anomalies list
                     await pipe.lpush(REDIS_ANOMALIES_KEY, enriched_json)
                     await pipe.ltrim(REDIS_ANOMALIES_KEY, 0, 999) # Keep last 1000
+                    
+                    # Store Healing Audit Record
+                    if action != "none":
+                        await pipe.lpush(REDIS_HEALING_KEY, healing_json)
+                        await pipe.ltrim(REDIS_HEALING_KEY, 0, 999)
                     
                     # Update Stats
                     endpoint = log.get("endpoint", "unknown")

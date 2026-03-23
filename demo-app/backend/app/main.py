@@ -143,8 +143,11 @@ async def startup_event():
         debug=settings.DEBUG
     )
     # Start the Detection Worker in the background
+    #the start_detection_worker command fires the infinite loop into the bg using asyncio(python's built-in task manager)
+    #it runs quietly on a separate thread(it is tireless robot worker that reads the logs, detects the bugs and heals the server indefinitely w/o interrupting the user's web requests)
     from app.services.detection_worker import start_detection_worker
     start_detection_worker()
+
 
 
 # Shutdown event
@@ -152,7 +155,6 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown"""
     logger.info("Application shutting down")
-
 
 if __name__ == "__main__":
     import uvicorn

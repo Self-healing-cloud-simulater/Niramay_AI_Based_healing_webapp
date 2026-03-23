@@ -12,6 +12,7 @@ REDIS_KEY = "observation:logs"
 REDIS_ANOMALIES_KEY = "observation:anomalies"
 REDIS_STATS_PREFIX = "anomaly_stats"
 DETECTION_QUEUE_KEY = "observation:pending_detection"
+REDIS_HEALING_KEY = "healing:actions"
 MAX_LOGS = 1000
 
 class ObservationStore:

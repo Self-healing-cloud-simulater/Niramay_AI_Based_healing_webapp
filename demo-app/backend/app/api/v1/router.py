@@ -16,6 +16,7 @@ from app.api.v1.endpoints import (
     chaos_engineer,
     observation_logs,
     anomalies,
+    healing,
 )
 
 api_router = APIRouter()
@@ -33,3 +34,4 @@ api_router.include_router(developer.router)
 api_router.include_router(chaos_engineer.router)
 api_router.include_router(observation_logs.router, prefix="/observation", tags=["observation"])
 api_router.include_router(anomalies.router, prefix="/detection", tags=["detection"])
+api_router.include_router(healing.router, prefix="/healing", tags=["healing"])
