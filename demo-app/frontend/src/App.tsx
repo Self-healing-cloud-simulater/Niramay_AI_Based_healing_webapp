@@ -18,6 +18,7 @@ import AdminPanel from './pages/AdminPanel';
 import DeveloperDashboard from './pages/DeveloperDashboard';
 import ChaosEngineer from './pages/ChaosEngineer';
 import DualView from './pages/DualView';
+import HealingDashboard from './pages/HealingDashboard';
 import PaymentModal, { PaymentMethod } from './components/PaymentModal';
 import ContactSupportModal from './components/ContactSupportModal';
 
@@ -185,6 +186,7 @@ function Navbar({ cartCount, onCartClick }: { cartCount: number; onCartClick: ()
     ...(!isAuthenticated ? [{ path: '/login', label: 'Login' }] : []),
     // Admin/developer tools — visible to admin only
     ...(user?.role === 'admin' ? [{ path: '/developer', label: '🛠 Dev' }] : []),
+    ...(user?.role === 'admin' ? [{ path: '/healing-dashboard', label: '⚕ Healing' }] : []),
     ...(user?.role === 'admin' ? [{ path: '/admin', label: 'Admin' }] : []),
   ];
 
@@ -521,6 +523,7 @@ function AppContent() {
             <Route path="/developer" element={<RequireRole role="admin"><PageWrap key="dev"><DeveloperDashboard /></PageWrap></RequireRole>} />
             <Route path="/developer/chaos-engineer" element={<RequireRole role="admin"><PageWrap key="chaos"><ChaosEngineer /></PageWrap></RequireRole>} />
             <Route path="/developer/dual-view" element={<RequireRole role="admin"><DualView /></RequireRole>} />
+            <Route path="/healing-dashboard" element={<RequireRole role="admin"><PageWrap key="healing-dash"><HealingDashboard /></PageWrap></RequireRole>} />
             <Route path="/developer/failure-simulator" element={<RequireRole role="admin"><PageWrap key="fsim"><div style={{ paddingTop: '0px' }}><FailureSimulatorPage /></div></PageWrap></RequireRole>} />
             {/* Role-protected dashboards — auth guards handled inside each dashboard */}
             <Route path="/restaurant-dashboard" element={<PageWrap key="rdash"><RestaurantDashboard /></PageWrap>} />
