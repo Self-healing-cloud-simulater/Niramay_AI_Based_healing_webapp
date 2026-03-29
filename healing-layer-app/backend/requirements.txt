@@ -1,0 +1,16 @@
+# FastAPI and Server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# Redis
+redis==5.0.1
+
+# Validation
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Logging
+structlog==23.2.0
+
+# HTTP (for traffic generator)
+httpx==0.25.2
