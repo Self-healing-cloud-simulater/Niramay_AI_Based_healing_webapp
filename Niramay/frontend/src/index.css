@@ -1,6 +1,9 @@
 /* ============================================================
    Niramay — Global Styles
+   Silent Luxury Design System
    ============================================================ */
+
+/* ─── Reset ──────────────────────────────────────────────── */
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -12,39 +15,72 @@ html {
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 body {
-  background: #070d1a;
-  color: #ffffff;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.65;
   overflow-x: hidden;
-  line-height: 1.6;
+  transition: background-color 400ms cubic-bezier(0.16, 1, 0.3, 1),
+              color 400ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Scrollbar */
+/* ─── Theme Defaults ─────────────────────────────────────── */
+
+html[data-theme="light"] body,
+body {
+  background: #F8F9FC;
+  color: #0A1628;
+}
+
+html[data-theme="dark"] body {
+  background: #0C1220;
+  color: #F1F4F9;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
-  background: #1a2d50;
-  border-radius: 10px;
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #D1D9E8;
+  border-radius: 9999px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #223a63;
+html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: #B8C4D6;
 }
 
-/* Selection */
-::selection {
-  background: rgba(59, 130, 246, 0.35);
-  color: #ffffff;
+html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #2A3D58;
+  border-radius: 9999px;
 }
+
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #3A5070;
+}
+
+/* ─── Selection ──────────────────────────────────────────── */
+
+html[data-theme="light"] ::selection {
+  background: rgba(27, 58, 107, 0.15);
+  color: #0A1628;
+}
+
+html[data-theme="dark"] ::selection {
+  background: rgba(107, 163, 232, 0.25);
+  color: #F1F4F9;
+}
+
+/* ─── Base Elements ──────────────────────────────────────── */
 
 a {
   color: inherit;
@@ -59,6 +95,89 @@ button {
   font-family: inherit;
 }
 
-input {
+input, textarea, select {
   font-family: inherit;
+}
+
+/* ─── Focus Ring ─────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid #2D5BB5;
+  outline-offset: 3px;
+}
+
+/* ─── Skeleton Shimmer ───────────────────────────────────── */
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ─── Live Pulse ─────────────────────────────────────────── */
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* ─── Fade In Up (for staggered reveals) ─────────────────── */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ─── Responsive Grid ────────────────────────────────────── */
+
+@media (max-width: 960px) {
+  .nr-grid-responsive {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .nr-stat-row {
+    flex-direction: column;
+  }
+}
+
+/* ─── Reduced Motion ─────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+  }
+}
+
+/* ─── Utility: Panel Scroll ──────────────────────────────── */
+
+.nr-panel-scroll {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* ─── Utility: Row Hover ─────────────────────────────────── */
+
+html[data-theme="light"] .nr-row-hover {
+  transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+html[data-theme="light"] .nr-row-hover:hover {
+  background: #F8F9FC;
+}
+
+html[data-theme="dark"] .nr-row-hover {
+  transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+html[data-theme="dark"] .nr-row-hover:hover {
+  background: #1E2B40;
 }
