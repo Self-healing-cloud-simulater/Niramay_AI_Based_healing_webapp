@@ -1,22 +1,21 @@
 /**
- * StatCard — Editorial stat display.
- * Large, light-weight number (48px/300) with whispered label.
- * "Never wrap numbers in boxes" — no visible card container.
+ * StatCard — Silent luxury stat display.
+ * Ultra-light 56px numbers (weight 200) vs whispered labels.
+ * No borders, no boxes, no shadows. Just negative space.
  */
-import { useTheme, type, font, fontMono, sp } from '../designSystem';
+import { useTheme, type, font, sp } from '../designSystem';
 
 export default function StatCard({ label, value, accentColor }: {
   label: string; value: string | number; accentColor?: string;
 }) {
   const { theme } = useTheme();
   return (
-    <div style={{ flex: '1 1 0', textAlign: 'center', padding: `0 ${sp[1]}px` }}>
+    <div style={{ flex: '1 1 0', textAlign: 'center', padding: `0 ${sp[2]}px` }}>
       <div style={{
-        ...type.hero,
+        ...type.display,
         fontFamily: font,
         fontVariantNumeric: 'tabular-nums',
         color: accentColor || theme.textPrimary,
-        marginBottom: sp.half,
       }}>
         {value}
       </div>
@@ -24,6 +23,7 @@ export default function StatCard({ label, value, accentColor }: {
         ...type.label,
         fontFamily: font,
         color: theme.textTertiary,
+        marginTop: sp[1],
       }}>
         {label}
       </div>
