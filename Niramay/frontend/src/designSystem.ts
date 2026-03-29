@@ -1,397 +1,290 @@
 /**
- * Niramay Design System — Single Source of Truth
+ * Niramay Design System v3 — Liquid Glass
  *
- * Silent luxury aesthetic: white, off-white, navy with restrained gold accent.
- * Every token used across the application is defined here.
- * No hardcoded color, spacing, font size, or shadow exists outside this file.
+ * A dual-mode color system (light/dark) with glassmorphism surfaces,
+ * spring physics, and editorial typography. Every token lives here.
  */
 
 import {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useEffect,
-  type ReactNode,
-  createElement,
+  createContext, useContext, useState, useCallback, useEffect,
+  type ReactNode, type CSSProperties, createElement,
 } from 'react';
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════
    THEME COLORS
-   ════════════════════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════════════ */
 
 export interface ThemeColors {
-  // Backgrounds
-  bgPrimary: string;
-  bgSecondary: string;
-  bgTertiary: string;
+  bg: string;
+  surface: string;
   surfaceElevated: string;
-
-  // Borders
-  borderSubtle: string;
-  borderDefault: string;
-
-  // Text
+  border: string;
+  borderHover: string;
   textPrimary: string;
   textSecondary: string;
   textTertiary: string;
-  textDisabled: string;
-
-  // Accent
-  accentNavy: string;
-  accentNavyMid: string;
-  accentNavyLight: string;
-  accentGold: string;
-
-  // Semantic
-  error: string;
-  errorLight: string;
+  navyAccent: string;
+  navyMid: string;
+  navySoft: string;
+  interactive: string;
+  hoverBg: string;
+  rowHover: string;
   success: string;
-  successLight: string;
+  successBg: string;
   warning: string;
-  warningLight: string;
-
-  // Shadow base (rgb triplet for rgba)
-  shadowColor: string;
-
-  // Chart palette
+  warningBg: string;
+  error: string;
+  errorBg: string;
   chartPrimary: string;
   chartSecondary: string;
   chartTertiary: string;
   chartArea: string;
+  glow: string;
 }
 
-export const lightTheme: ThemeColors = {
-  bgPrimary:       '#FFFFFF',
-  bgSecondary:     '#F8F9FC',
-  bgTertiary:      '#F1F4F9',
+export const light: ThemeColors = {
+  bg:              '#FAFAFA',
+  surface:         '#FFFFFF',
   surfaceElevated: '#FFFFFF',
-
-  borderSubtle:    '#E8ECF4',
-  borderDefault:   '#D1D9E8',
-
+  border:          'rgba(10, 22, 40, 0.06)',
+  borderHover:     'rgba(10, 22, 40, 0.12)',
   textPrimary:     '#0A1628',
-  textSecondary:   '#3D5070',
-  textTertiary:    '#7A8FAD',
-  textDisabled:    '#B8C4D6',
-
-  accentNavy:      '#1B3A6B',
-  accentNavyMid:   '#2D5BB5',
-  accentNavyLight: '#EEF3FF',
-  accentGold:      '#C9A96E',
-
-  error:           '#C0392B',
-  errorLight:      '#FDF2F1',
-  success:         '#1A6B45',
-  successLight:    '#F0F9F4',
-  warning:         '#B8860B',
-  warningLight:    '#FFF9EE',
-
-  shadowColor:     '10, 22, 40',
-
+  textSecondary:   '#4A5568',
+  textTertiary:    '#8FA3BF',
+  navyAccent:      '#1B3A6B',
+  navyMid:         '#2E5090',
+  navySoft:        '#8FA3BF',
+  interactive:     '#1B3A6B',
+  hoverBg:         'rgba(27, 58, 107, 0.05)',
+  rowHover:        'rgba(27, 58, 107, 0.03)',
+  success:         '#1A5C3A',
+  successBg:       '#EAF4EE',
+  warning:         '#7A4F1A',
+  warningBg:       '#FDF4E7',
+  error:           '#8B2020',
+  errorBg:         '#FAEAEA',
   chartPrimary:    '#1B3A6B',
-  chartSecondary:  '#2D5BB5',
-  chartTertiary:   '#7A8FAD',
+  chartSecondary:  '#2E5090',
+  chartTertiary:   '#8FA3BF',
   chartArea:       '#1B3A6B',
+  glow:            'rgba(27, 58, 107, 0.06)',
 };
 
-export const darkTheme: ThemeColors = {
-  bgPrimary:       '#0C1220',
-  bgSecondary:     '#111A2E',
-  bgTertiary:      '#182336',
-  surfaceElevated: '#1E2B40',
-
-  borderSubtle:    '#1E2B40',
-  borderDefault:   '#2A3D58',
-
-  textPrimary:     '#F1F4F9',
-  textSecondary:   '#8BA1BE',
-  textTertiary:    '#5B7190',
-  textDisabled:    '#3D5470',
-
-  accentNavy:      '#6BA3E8',
-  accentNavyMid:   '#4E8BD4',
-  accentNavyLight: '#162640',
-  accentGold:      '#D4B87A',
-
-  error:           '#DC6B67',
-  errorLight:      '#2A1B1F',
+export const dark: ThemeColors = {
+  bg:              '#070D18',
+  surface:         '#0D1929',
+  surfaceElevated: '#112236',
+  border:          'rgba(255, 255, 255, 0.06)',
+  borderHover:     'rgba(255, 255, 255, 0.12)',
+  textPrimary:     '#EEF2F7',
+  textSecondary:   '#8FA3BF',
+  textTertiary:    '#4A5568',
+  navyAccent:      '#4A80C4',
+  navyMid:         '#6B9FD4',
+  navySoft:        '#8FA3BF',
+  interactive:     '#4A80C4',
+  hoverBg:         'rgba(74, 128, 196, 0.08)',
+  rowHover:        'rgba(74, 128, 196, 0.05)',
   success:         '#5CB88A',
-  successLight:    '#1B2A22',
+  successBg:       '#1B2A22',
   warning:         '#D4A843',
-  warningLight:    '#2A2519',
-
-  shadowColor:     '0, 0, 0',
-
-  chartPrimary:    '#6BA3E8',
-  chartSecondary:  '#4E8BD4',
-  chartTertiary:   '#5B7190',
-  chartArea:       '#6BA3E8',
+  warningBg:       '#2A2519',
+  error:           '#DC6B67',
+  errorBg:         '#2A1B1F',
+  chartPrimary:    '#4A80C4',
+  chartSecondary:  '#6B9FD4',
+  chartTertiary:   '#8FA3BF',
+  chartArea:       '#4A80C4',
+  glow:            'rgba(74, 128, 196, 0.15)',
 };
 
-/* ════════════════════════════════════════════════════════════════════════
-   SPACING — 8pt Grid
-   ════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   LIQUID GLASS — the defining aesthetic
+   ═══════════════════════════════════════════════════════════════════ */
 
-export const spacing = {
-  xxs: 4,
-  xs:  8,
-  sm:  12,
-  md:  16,
-  lg:  24,
-  xl:  32,
-  '2xl': 40,
-  '3xl': 48,
-  '4xl': 64,
-  '5xl': 80,
-  '6xl': 96,
-  '7xl': 128,
-} as const;
-
-/* ════════════════════════════════════════════════════════════════════════
-   TYPOGRAPHY
-   ════════════════════════════════════════════════════════════════════════ */
-
-export const fontFamily = {
-  display: "'Playfair Display', Georgia, 'Times New Roman', serif",
-  ui:      "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-} as const;
-
-export const typeScale = {
-  display:   { fontSize: 48, fontWeight: 300, letterSpacing: '-0.02em', lineHeight: 1.1 },
-  h1:        { fontSize: 32, fontWeight: 400, letterSpacing: '-0.015em', lineHeight: 1.2 },
-  h2:        { fontSize: 24, fontWeight: 500, letterSpacing: '-0.01em', lineHeight: 1.3 },
-  h3:        { fontSize: 18, fontWeight: 500, letterSpacing: '-0.005em', lineHeight: 1.4 },
-  bodyLarge: { fontSize: 16, fontWeight: 400, lineHeight: 1.7 },
-  body:      { fontSize: 14, fontWeight: 400, lineHeight: 1.65 },
-  label:     { fontSize: 12, fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase' as const },
-  caption:   { fontSize: 11, fontWeight: 400, letterSpacing: '0.02em' },
-} as const;
-
-/* ════════════════════════════════════════════════════════════════════════
-   BORDER RADIUS
-   ════════════════════════════════════════════════════════════════════════ */
-
-export const radius = {
-  sharp: 2,
-  soft:  8,
-  pill:  9999,
-} as const;
-
-/* ════════════════════════════════════════════════════════════════════════
-   SHADOWS — elevation through shadow, not color
-   ════════════════════════════════════════════════════════════════════════ */
-
-export function makeShadows(c: string) {
+export function glass(isDark: boolean): CSSProperties {
+  if (isDark) return {
+    background: 'rgba(13, 25, 41, 0.75)',
+    backdropFilter: 'blur(24px) saturate(160%)',
+    WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+    border: '1px solid rgba(255, 255, 255, 0.07)',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)',
+  };
   return {
-    xs: `0 1px 2px rgba(${c}, 0.04)`,
-    sm: `0 2px 8px rgba(${c}, 0.06), 0 1px 2px rgba(${c}, 0.04)`,
-    md: `0 4px 16px rgba(${c}, 0.08), 0 2px 4px rgba(${c}, 0.04)`,
-    lg: `0 8px 32px rgba(${c}, 0.10), 0 4px 8px rgba(${c}, 0.06)`,
-    xl: `0 16px 48px rgba(${c}, 0.12), 0 8px 16px rgba(${c}, 0.06)`,
+    background: 'rgba(255, 255, 255, 0.72)',
+    backdropFilter: 'blur(20px) saturate(180%)',
+    WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+    border: '1px solid rgba(255, 255, 255, 0.5)',
+    boxShadow: '0 4px 24px rgba(10,22,40,0.06), 0 1px 2px rgba(10,22,40,0.04), inset 0 1px 0 rgba(255,255,255,0.8)',
   };
 }
 
-export type Shadows = ReturnType<typeof makeShadows>;
+export function glassSubtle(isDark: boolean): CSSProperties {
+  if (isDark) return {
+    background: 'rgba(13, 25, 41, 0.5)',
+    backdropFilter: 'blur(12px) saturate(140%)',
+    WebkitBackdropFilter: 'blur(12px) saturate(140%)',
+    border: '1px solid rgba(255, 255, 255, 0.04)',
+  };
+  return {
+    background: 'rgba(255, 255, 255, 0.55)',
+    backdropFilter: 'blur(12px) saturate(160%)',
+    WebkitBackdropFilter: 'blur(12px) saturate(160%)',
+    border: '1px solid rgba(255, 255, 255, 0.4)',
+  };
+}
 
-/* ════════════════════════════════════════════════════════════════════════
-   TRANSITIONS — every interactive element has one
-   ════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   SPACING — 8pt grid, no exceptions
+   ═══════════════════════════════════════════════════════════════════ */
 
-export const transitions = {
-  fast:    '150ms cubic-bezier(0.16, 1, 0.3, 1)',
-  default: '250ms cubic-bezier(0.16, 1, 0.3, 1)',
-  slow:    '400ms cubic-bezier(0.16, 1, 0.3, 1)',
-  spring:  '600ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+export const sp = {
+  1: 8, 2: 16, 3: 24, 4: 32, 5: 48, 6: 64, 7: 96, 8: 128,
+  half: 4,
 } as const;
 
-/* ════════════════════════════════════════════════════════════════════════
-   Z-INDEX SCALE — never above 1000
-   ════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   TYPOGRAPHY — Inter only, weights 300/400/500
+   ═══════════════════════════════════════════════════════════════════ */
 
-export const zIndex = {
-  base:          1,
-  dropdown:      100,
-  sticky:        200,
-  modalBackdrop: 300,
-  modal:         400,
-  toast:         500,
+export const font = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+export const fontMono = "'JetBrains Mono', 'Fira Code', monospace";
+
+export const type = {
+  hero:    { fontSize: 48, fontWeight: 300, letterSpacing: '-0.01em', lineHeight: 1.2 },
+  h1:      { fontSize: 32, fontWeight: 300, letterSpacing: '-0.01em', lineHeight: 1.2 },
+  h2:      { fontSize: 24, fontWeight: 400, letterSpacing: '-0.01em', lineHeight: 1.3 },
+  h3:      { fontSize: 18, fontWeight: 500, letterSpacing: 0, lineHeight: 1.4 },
+  body:    { fontSize: 15, fontWeight: 400, lineHeight: 1.6 },
+  bodySm:  { fontSize: 13, fontWeight: 400, lineHeight: 1.6 },
+  label:   { fontSize: 11, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase' as const, lineHeight: 1.4 },
+  caption: { fontSize: 11, fontWeight: 400, letterSpacing: '0.02em', lineHeight: 1.4 },
+  mono:    { fontSize: 13, fontWeight: 400, fontFamily: fontMono, letterSpacing: 0, lineHeight: 1.6 },
 } as const;
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════
+   RADIUS
+   ═══════════════════════════════════════════════════════════════════ */
+
+export const radius = { xs: 4, sm: 8, md: 10, lg: 16, xl: 20, pill: 9999 } as const;
+
+/* ═══════════════════════════════════════════════════════════════════
+   EASING — physics-based curves
+   ═══════════════════════════════════════════════════════════════════ */
+
+export const ease = {
+  standard: 'cubic-bezier(0.4, 0, 0.2, 1)',
+  spring:   'cubic-bezier(0.34, 1.56, 0.64, 1)',
+  out:      'cubic-bezier(0.0, 0, 0.2, 1)',
+} as const;
+
+export const dur = { micro: 80, fast: 150, default: 220, slow: 400 } as const;
+
+/* ═══════════════════════════════════════════════════════════════════
+   SHADOWS
+   ═══════════════════════════════════════════════════════════════════ */
+
+export const shadow = {
+  xs:  '0 1px 3px rgba(10,22,40,0.04)',
+  sm:  '0 2px 8px rgba(10,22,40,0.06)',
+  md:  '0 4px 16px rgba(10,22,40,0.08)',
+  lg:  '0 8px 32px rgba(10,22,40,0.10)',
+} as const;
+
+/* ═══════════════════════════════════════════════════════════════════
    LAYOUT
-   ════════════════════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════════════ */
 
-export const layout = {
-  maxWidth:       1280,
-  paddingDesktop: 40,
-  paddingMobile:  20,
-  sectionGap:     64,
-} as const;
+export const layout = { maxWidth: 1200, padding: 48, paddingMobile: 24, navHeight: 64 } as const;
 
-/* ════════════════════════════════════════════════════════════════════════
-   DATA TYPES (moved from HealingDashboard for shared use)
-   ════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   DATA TYPES
+   ═══════════════════════════════════════════════════════════════════ */
 
 export interface ObservationLog {
-  timestamp: string;
-  endpoint: string;
-  method: string;
-  status_code: number;
-  response_time_ms: number;
-  request_id: string;
-  failure_type: string;
+  timestamp: string; endpoint: string; method: string;
+  status_code: number; response_time_ms: number; request_id: string; failure_type: string;
 }
 
 export interface AnomalyData {
-  total: number;
-  filtered: number;
+  total: number; filtered: number;
   anomalies: Array<{
-    timestamp: string;
-    endpoint: string;
-    method: string;
-    status_code: number;
-    response_time_ms: number;
-    anomaly_score: number;
-    anomaly_reasons: string[];
+    timestamp: string; endpoint: string; method: string; status_code: number;
+    response_time_ms: number; anomaly_score: number; anomaly_reasons: string[];
     failure_type: string;
-    healing?: {
-      healing_action: string;
-      status: string;
-      message: string;
-      timestamp: string;
-    };
+    healing?: { healing_action: string; status: string; message: string; timestamp: string; };
   }>;
-  stats: {
-    by_endpoint: Record<string, number>;
-    by_type: Record<string, number>;
-  };
+  stats: { by_endpoint: Record<string, number>; by_type: Record<string, number>; };
 }
 
 export interface HealingAction {
-  healing_action: string;
-  status: string;
-  timestamp: string;
-  message: string;
+  healing_action: string; status: string; timestamp: string; message: string;
 }
 
-/* ════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════
    THEME CONTEXT
-   ════════════════════════════════════════════════════════════════════════ */
+   ═══════════════════════════════════════════════════════════════════ */
 
-interface ThemeContextValue {
-  theme: ThemeColors;
-  isDark: boolean;
-  toggleTheme: () => void;
-  shadow: Shadows;
-}
+interface Ctx { theme: ThemeColors; isDark: boolean; toggleTheme: () => void; }
 
-const ThemeContext = createContext<ThemeContextValue>({
-  theme: lightTheme,
-  isDark: false,
-  toggleTheme: () => {},
-  shadow: makeShadows(lightTheme.shadowColor),
-});
+const ThemeContext = createContext<Ctx>({ theme: light, isDark: false, toggleTheme: () => {} });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [isDark, setIsDark] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('niramay-theme');
-      if (stored) return stored === 'dark';
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
+    if (typeof window === 'undefined') return false;
+    const s = localStorage.getItem('niramay-theme');
+    if (s) return s === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
 
   const toggleTheme = useCallback(() => {
-    setIsDark(prev => {
-      const next = !prev;
-      localStorage.setItem('niramay-theme', next ? 'dark' : 'light');
-      return next;
-    });
+    setIsDark(p => { const n = !p; localStorage.setItem('niramay-theme', n ? 'dark' : 'light'); return n; });
   }, []);
 
-  const theme = isDark ? darkTheme : lightTheme;
-  const shadow = makeShadows(theme.shadowColor);
+  const theme = isDark ? dark : light;
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-    // update meta theme-color
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', theme.bgPrimary);
+    const m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', theme.bg);
   }, [isDark, theme]);
 
-  return createElement(
-    ThemeContext.Provider,
-    { value: { theme, isDark, toggleTheme, shadow } },
-    children
-  );
+  return createElement(ThemeContext.Provider, { value: { theme, isDark, toggleTheme } }, children);
 }
 
-export function useTheme() {
-  return useContext(ThemeContext);
-}
+export function useTheme() { return useContext(ThemeContext); }
 
-/* ════════════════════════════════════════════════════════════════════════
-   UTILITY FUNCTIONS
-   ════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════════ */
 
 export function timeAgo(ts: string): string {
-  const diff = Date.now() - new Date(ts).getTime();
-  if (diff < 1000)    return 'just now';
-  if (diff < 60000)   return `${Math.floor(diff / 1000)}s ago`;
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-  return `${Math.floor(diff / 3600000)}h ago`;
+  const d = Date.now() - new Date(ts).getTime();
+  if (d < 1000) return 'now'; if (d < 60000) return `${Math.floor(d/1000)}s`;
+  if (d < 3600000) return `${Math.floor(d/60000)}m`; return `${Math.floor(d/3600000)}h`;
 }
 
-export function statusColor(code: number, t: ThemeColors): string {
-  if (code >= 500) return t.error;
-  if (code >= 400) return t.warning;
-  if (code >= 200 && code < 300) return t.success;
-  return t.textTertiary;
+export function statusColor(code: number, t: ThemeColors) {
+  if (code >= 500) return t.error; if (code >= 400) return t.warning;
+  if (code >= 200 && code < 300) return t.success; return t.textTertiary;
 }
 
-export function methodColor(method: string, t: ThemeColors): string {
-  const map: Record<string, string> = {
-    GET:    t.accentNavyMid,
-    POST:   t.success,
-    PUT:    t.warning,
-    PATCH:  t.warning,
-    DELETE: t.error,
-  };
-  return map[method] || t.textTertiary;
+export function methodColor(m: string, t: ThemeColors) {
+  return ({ GET: t.navyMid, POST: t.success, PUT: t.warning, PATCH: t.warning, DELETE: t.error }[m]) || t.textTertiary;
 }
 
-export function severityColor(score: number, t: ThemeColors): string {
-  if (score >= 5) return t.error;
-  if (score >= 3) return t.warning;
-  return t.accentNavyMid;
+export function severityColor(s: number, t: ThemeColors) {
+  if (s >= 5) return t.error; if (s >= 3) return t.warning; return t.navyMid;
 }
-
-/* ════════════════════════════════════════════════════════════════════════
-   STATIC DATA (AI recommendations — unchanged from original)
-   ════════════════════════════════════════════════════════════════════════ */
 
 export const AI_RECOMMENDATIONS = [
-  {
-    id: 1,
-    severity: 'high' as const,
-    title: 'Predicted: Database connection pool exhaustion in ~12 min',
-    desc: 'Based on current request patterns, connection pool usage is trending upward at 8.3%/min.',
-    action: 'Pre-scale connection pool to 200',
-  },
-  {
-    id: 2,
-    severity: 'medium' as const,
-    title: 'Anomaly cluster detected on /api/v1/orders',
+  { id: 1, severity: 'high' as const, title: 'Predicted: Database connection pool exhaustion in ~12 min',
+    desc: 'Connection pool usage trending upward at 8.3%/min based on current request patterns.',
+    action: 'Pre-scale connection pool to 200' },
+  { id: 2, severity: 'medium' as const, title: 'Anomaly cluster detected on /api/v1/orders',
     desc: 'Latency spikes correlate with payment gateway response degradation over the last 20 minutes.',
-    action: 'Enable circuit breaker for payment gateway',
-  },
-  {
-    id: 3,
-    severity: 'low' as const,
-    title: 'Optimization: 34% of retry_request actions are redundant',
-    desc: 'Analysis shows retries on endpoints with >95% eventual success resolve naturally within 200ms.',
-    action: 'Adjust retry threshold to 500ms',
-  },
+    action: 'Enable circuit breaker for payment gateway' },
+  { id: 3, severity: 'low' as const, title: 'Optimization: 34% of retry_request actions are redundant',
+    desc: 'Retries on endpoints with >95% eventual success resolve naturally within 200ms.',
+    action: 'Adjust retry threshold to 500ms' },
 ];

@@ -1,50 +1,40 @@
 /**
- * Toggle — Premium on/off switch
- * Navy accent when on, muted border when off.
- * Spring transition for the knob, visible focus ring.
+ * ThemeToggle — 48×26 glass pill with spring-physics orb.
+ * Light: off-white bg, navy orb. Dark: deep navy bg, glowing blue orb.
  */
+import { useTheme, glass, ease, dur, radius } from '../designSystem';
 
-import { useTheme, radius, transitions, spacing } from '../designSystem';
-
-interface ToggleProps {
-  on: boolean;
-  onToggle: () => void;
-  label?: string;
-}
-
-export default function Toggle({ on, onToggle, label }: ToggleProps) {
-  const { theme, shadow } = useTheme();
+export default function ThemeToggle() {
+  const { isDark, toggleTheme } = useTheme();
 
   return (
     <button
-      role="switch"
-      aria-checked={on}
-      aria-label={label || 'Toggle'}
-      onClick={onToggle}
+      onClick={toggleTheme}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       style={{
-        position: 'relative',
-        width: 36,
-        height: 20,
+        width: 48,
+        height: 26,
         borderRadius: radius.pill,
-        border: 'none',
-        background: on ? theme.accentNavyMid : theme.borderDefault,
+        padding: 3,
+        position: 'relative',
         cursor: 'pointer',
-        transition: `background ${transitions.default}`,
+        ...glass(isDark),
+        display: 'flex',
+        alignItems: 'center',
+        transition: `background ${dur.slow}ms ${ease.standard}`,
         flexShrink: 0,
-        padding: 0,
       }}
     >
       <span
         style={{
-          position: 'absolute',
-          top: spacing.xxs / 2,
-          left: on ? 18 : 2,
-          width: 16,
-          height: 16,
+          display: 'block',
+          width: 20,
+          height: 20,
           borderRadius: '50%',
-          background: '#FFFFFF',
-          boxShadow: shadow.xs,
-          transition: `left ${transitions.spring}`,
+          background: isDark ? '#4A80C4' : '#0A1628',
+          boxShadow: isDark ? '0 0 12px rgba(74,128,196,0.5), 0 0 4px rgba(74,128,196,0.3)' : 'none',
+          transform: `translateX(${isDark ? 22 : 0}px)`,
+          transition: `transform ${dur.slow}ms ${ease.spring}, background ${dur.slow}ms ${ease.standard}, box-shadow ${dur.slow}ms ${ease.standard}`,
         }}
       />
     </button>

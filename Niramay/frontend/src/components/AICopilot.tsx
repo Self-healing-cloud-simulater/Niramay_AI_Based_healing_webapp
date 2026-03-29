@@ -1,387 +1,163 @@
-/**
- * AICopilot — Panel 4
- * Feature toggles, AI recommendations, and chat interface.
- * The ONE place where accent gold appears — in the panel header accent line.
- * "PREVIEW" badge in gold to signal premium future capability.
- */
-
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  useTheme, AI_RECOMMENDATIONS,
-  typeScale, fontFamily, spacing, radius, transitions,
+  useTheme, glass, glassSubtle, AI_RECOMMENDATIONS,
+  type, font, sp, radius, ease, dur,
 } from '../designSystem';
-import Toggle from './Toggle';
 
 export default function AICopilot() {
-  const { theme, shadow } = useTheme();
-  const [features, setFeatures] = useState({
-    predictive: false,
-    rootCause: false,
-    smartPriority: false,
-  });
+  const { theme, isDark } = useTheme();
+  const [features, setFeatures] = useState({ predictive: false, rootCause: false, smartPriority: false });
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'ai'; text: string }>>([
-    {
-      role: 'ai',
-      text: "Hello — I'm your AI Copilot. Once the AI backend is integrated, I'll provide real-time fault analysis, predictive insights, and automated healing recommendations. Try toggling the features below.",
-    },
+    { role: 'ai', text: "Hello — I'm your AI Copilot. Once the AI backend is integrated, I'll provide real-time fault analysis, predictive insights, and healing recommendations." },
   ]);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [sendHovered, setSendHovered] = useState(false);
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
 
   const handleSend = () => {
     if (!chatInput.trim()) return;
-    const q = chatInput.trim();
-    setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'user', text: q }]);
-
+    const q = chatInput.trim(); setChatInput('');
+    setChatMessages(p => [...p, { role: 'user', text: q }]);
     setTimeout(() => {
-      const responses = [
-        `Interesting question about "${q}". Once connected to the AI backend, I'll analyze patterns across all 3 layers to provide a comprehensive answer.`,
-        `I've noted your query: "${q}". In the next phase, I'll use ML models trained on your observation and detection data to give precise insights.`,
-        `Great question. When the AI engine is live, queries like "${q}" will be answered using real-time analysis of anomaly patterns and healing outcomes.`,
+      const rs = [
+        `Interesting question about "${q}". Once the AI backend is connected, I'll analyze patterns across all 3 layers.`,
+        `Noted: "${q}". In the next phase, ML models will provide precise insights from your data.`,
+        `When the AI engine is live, queries like "${q}" will leverage real-time anomaly analysis.`,
       ];
-      setChatMessages(prev => [
-        ...prev,
-        { role: 'ai', text: responses[Math.floor(Math.random() * responses.length)] },
-      ]);
+      setChatMessages(p => [...p, { role: 'ai', text: rs[Math.floor(Math.random() * rs.length)] }]);
     }, 1200);
   };
 
-  const sevColor = (sev: string) =>
-    sev === 'high' ? theme.error : sev === 'medium' ? theme.warning : theme.accentNavyMid;
+  const sev = (s: string) => s === 'high' ? theme.error : s === 'medium' ? theme.warning : theme.navyMid;
+  const sevBg = (s: string) => s === 'high' ? theme.errorBg : s === 'medium' ? theme.warningBg : theme.hoverBg;
 
-  const sevBg = (sev: string) =>
-    sev === 'high' ? theme.errorLight : sev === 'medium' ? theme.warningLight : theme.accentNavyLight;
+  /* Mini toggle */
+  const MiniToggle = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
+    <button onClick={onToggle} role="switch" aria-checked={on} style={{
+      width: 32, height: 18, borderRadius: radius.pill, padding: 2, border: 'none',
+      background: on ? theme.interactive : theme.border, cursor: 'pointer',
+      transition: `background ${dur.default}ms ${ease.standard}`, flexShrink: 0,
+    }}>
+      <span style={{
+        display: 'block', width: 14, height: 14, borderRadius: '50%', background: '#fff',
+        transform: `translateX(${on ? 14 : 0}px)`,
+        transition: `transform ${dur.slow}ms ${ease.spring}`,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+      }} />
+    </button>
+  );
 
   return (
-    <div
-      style={{
-        background: theme.surfaceElevated,
-        border: `1px solid ${theme.borderSubtle}`,
-        borderTop: `2px solid ${theme.accentGold}`,
-        borderRadius: radius.soft,
-        boxShadow: shadow.sm,
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: `${spacing.md}px ${spacing.lg}px`,
-          borderBottom: `1px solid ${theme.borderSubtle}`,
-          background: theme.bgSecondary,
-        }}
-      >
-        <span
-          style={{
-            ...typeScale.label,
-            fontFamily: fontFamily.ui,
-            color: theme.textSecondary,
-          }}
-        >
-          AI Copilot
-        </span>
-        <span
-          style={{
-            ...typeScale.caption,
-            fontSize: 9,
-            fontWeight: 600,
-            fontFamily: fontFamily.ui,
-            color: theme.accentGold,
-            background: `${theme.accentGold}15`,
-            border: `1px solid ${theme.accentGold}30`,
-            padding: `2px ${spacing.xs}px`,
-            borderRadius: radius.pill,
-            letterSpacing: '0.06em',
-            textTransform: 'uppercase',
-          }}
-        >
-          Preview
-        </span>
+    <div style={{ ...glass(isDark), borderRadius: radius.lg, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: `${sp[1]}px ${sp[2]}px`, borderBottom: `1px solid ${theme.border}`,
+      }}>
+        <span style={{ ...type.label, fontFamily: font, color: theme.textSecondary }}>AI Copilot</span>
+        <span style={{
+          ...type.caption, fontSize: 9, fontWeight: 500, fontFamily: font,
+          color: theme.navyMid, background: theme.hoverBg,
+          padding: '2px 8px', borderRadius: radius.pill, letterSpacing: '0.06em', textTransform: 'uppercase',
+        }}>Preview</span>
       </div>
 
-      <div
-        className="nr-panel-scroll"
-        style={{ flex: 1, padding: `${spacing.md}px ${spacing.lg}px`, maxHeight: 460 }}
-      >
-        {/* Feature Toggles */}
-        <div style={{ marginBottom: spacing.lg }}>
-          <div
-            style={{
-              ...typeScale.label,
-              fontSize: 10,
-              fontFamily: fontFamily.ui,
-              color: theme.textTertiary,
-              marginBottom: spacing.sm,
-            }}
-          >
-            AI Features
-          </div>
+      <div style={{ flex: 1, padding: `${sp[1]}px ${sp[2]}px`, maxHeight: 460, overflowY: 'auto' }}>
+        {/* Features */}
+        <div style={{ marginBottom: sp[2] }}>
+          <div style={{ ...type.label, fontSize: 10, fontFamily: font, color: theme.textTertiary, marginBottom: sp[1] }}>Features</div>
           {([
             { key: 'predictive' as const, label: 'Predictive Healing', desc: 'Forecast failures before they happen' },
-            { key: 'rootCause' as const, label: 'Auto Root Cause Analysis', desc: 'AI-powered failure diagnosis' },
+            { key: 'rootCause' as const, label: 'Root Cause Analysis', desc: 'AI-powered failure diagnosis' },
             { key: 'smartPriority' as const, label: 'Smart Prioritization', desc: 'Intelligent action ranking' },
-          ]).map(feat => (
-            <div
-              key={feat.key}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: `${spacing.sm}px ${spacing.md}px`,
-                background: theme.bgTertiary,
-                borderRadius: radius.soft,
-                marginBottom: spacing.xs,
-                border: `1px solid ${features[feat.key] ? theme.accentNavyMid + '40' : theme.borderSubtle}`,
-                transition: `border-color ${transitions.default}`,
-              }}
-            >
+          ]).map(f => (
+            <div key={f.key} style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              padding: `${sp[1]}px`, background: theme.hoverBg, borderRadius: radius.sm, marginBottom: sp.half,
+              border: `1px solid ${features[f.key] ? `${theme.interactive}30` : 'transparent'}`,
+              transition: `border-color ${dur.default}ms ${ease.standard}`,
+            }}>
               <div>
-                <div
-                  style={{
-                    ...typeScale.body,
-                    fontSize: 13,
-                    fontWeight: 500,
-                    fontFamily: fontFamily.ui,
-                    color: features[feat.key] ? theme.accentNavy : theme.textPrimary,
-                    transition: `color ${transitions.default}`,
-                  }}
-                >
-                  {feat.label}
-                </div>
-                <div
-                  style={{
-                    ...typeScale.caption,
-                    fontFamily: fontFamily.ui,
-                    color: theme.textTertiary,
-                    marginTop: 2,
-                  }}
-                >
-                  {feat.desc}
-                </div>
+                <div style={{ ...type.bodySm, fontWeight: 500, fontFamily: font, color: theme.textPrimary }}>{f.label}</div>
+                <div style={{ ...type.caption, fontFamily: font, color: theme.textTertiary, marginTop: 1 }}>{f.desc}</div>
               </div>
-              <Toggle
-                on={features[feat.key]}
-                onToggle={() => setFeatures(f => ({ ...f, [feat.key]: !f[feat.key] }))}
-                label={feat.label}
-              />
+              <MiniToggle on={features[f.key]} onToggle={() => setFeatures(x => ({ ...x, [f.key]: !x[f.key] }))} />
             </div>
           ))}
         </div>
 
-        {/* AI Recommendations */}
-        <div style={{ marginBottom: spacing.lg }}>
-          <div
-            style={{
-              ...typeScale.label,
-              fontSize: 10,
-              fontFamily: fontFamily.ui,
-              color: theme.textTertiary,
-              marginBottom: spacing.sm,
-            }}
-          >
-            Recommendations
-          </div>
+        {/* Recommendations */}
+        <div style={{ marginBottom: sp[2] }}>
+          <div style={{ ...type.label, fontSize: 10, fontFamily: font, color: theme.textTertiary, marginBottom: sp[1] }}>Recommendations</div>
           {AI_RECOMMENDATIONS.map(rec => (
-            <motion.div
-              key={rec.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              style={{
-                background: theme.bgTertiary,
-                borderLeft: `3px solid ${sevColor(rec.severity)}`,
-                borderRadius: radius.soft,
-                padding: `${spacing.sm}px ${spacing.md}px`,
-                marginBottom: spacing.xs,
+            <motion.div key={rec.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{
+              background: theme.hoverBg, borderLeft: `2px solid ${sev(rec.severity)}`,
+              borderRadius: radius.sm, padding: `${sp[1]}px`, marginBottom: sp.half,
+            }}>
+              <span style={{
+                ...type.caption, fontSize: 9, fontWeight: 500, fontFamily: font,
+                color: sev(rec.severity), background: sevBg(rec.severity),
+                padding: '1px 6px', borderRadius: radius.pill, textTransform: 'uppercase',
+              }}>{rec.severity}</span>
+              <div style={{ ...type.bodySm, fontWeight: 500, fontFamily: font, color: theme.textPrimary, marginTop: 6, lineHeight: 1.45 }}>{rec.title}</div>
+              <div style={{ ...type.caption, fontFamily: font, color: theme.textTertiary, marginTop: 4, lineHeight: 1.5 }}>{rec.desc}</div>
+              <button style={{
+                width: '100%', marginTop: sp[1], padding: `6px ${sp[1]}px`,
+                background: theme.hoverBg, border: `1px solid ${theme.border}`,
+                borderRadius: radius.sm, color: theme.interactive, fontSize: 12, fontWeight: 500, fontFamily: font,
+                cursor: 'pointer', transition: `all ${dur.default}ms ${ease.spring}`,
               }}
-            >
-              <div style={{ marginBottom: spacing.xxs }}>
-                <span
-                  style={{
-                    ...typeScale.caption,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    fontFamily: fontFamily.ui,
-                    color: sevColor(rec.severity),
-                    background: sevBg(rec.severity),
-                    padding: `1px ${spacing.xs - 2}px`,
-                    borderRadius: radius.pill,
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {rec.severity}
-                </span>
-              </div>
-              <div
-                style={{
-                  ...typeScale.body,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  fontFamily: fontFamily.ui,
-                  color: theme.textPrimary,
-                  marginBottom: spacing.xxs,
-                  lineHeight: 1.45,
-                }}
-              >
-                {rec.title}
-              </div>
-              <div
-                style={{
-                  ...typeScale.caption,
-                  fontFamily: fontFamily.ui,
-                  color: theme.textTertiary,
-                  marginBottom: spacing.sm,
-                  lineHeight: 1.5,
-                }}
-              >
-                {rec.desc}
-              </div>
-              <button
-                style={{
-                  width: '100%',
-                  padding: `${spacing.xs}px ${spacing.md}px`,
-                  background: theme.accentNavyLight,
-                  border: `1px solid ${theme.accentNavyMid}25`,
-                  borderRadius: radius.soft,
-                  color: theme.accentNavy,
-                  fontSize: 12,
-                  fontWeight: 500,
-                  fontFamily: fontFamily.ui,
-                  cursor: 'pointer',
-                  transition: `all ${transitions.default}`,
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.background = theme.accentNavyMid;
-                  e.currentTarget.style.color = '#FFFFFF';
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.background = theme.accentNavyLight;
-                  e.currentTarget.style.color = theme.accentNavy;
-                }}
-              >
-                {rec.action}
-              </button>
+                onMouseEnter={e => { e.currentTarget.style.background = theme.interactive; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = theme.hoverBg; e.currentTarget.style.color = theme.interactive; e.currentTarget.style.transform = 'translateY(0)'; }}
+              >{rec.action}</button>
             </motion.div>
           ))}
         </div>
 
-        {/* Chat Interface */}
+        {/* Chat */}
         <div>
-          <div
-            style={{
-              ...typeScale.label,
-              fontSize: 10,
-              fontFamily: fontFamily.ui,
-              color: theme.textTertiary,
-              marginBottom: spacing.sm,
-            }}
-          >
-            Ask AI
-          </div>
-          <div
-            className="nr-panel-scroll"
-            style={{
-              background: theme.bgTertiary,
-              borderRadius: radius.soft,
-              border: `1px solid ${theme.borderSubtle}`,
-              padding: `${spacing.xs}px ${spacing.sm}px`,
-              maxHeight: 160,
-              overflowY: 'auto',
-            }}
-          >
-            {chatMessages.map((msg, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex',
-                  justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                  marginBottom: spacing.xs,
-                }}
-              >
-                <div
-                  style={{
-                    maxWidth: '85%',
-                    padding: `${spacing.xs}px ${spacing.sm}px`,
-                    borderRadius: radius.soft,
-                    background: msg.role === 'user' ? theme.accentNavyLight : theme.bgSecondary,
-                    border: `1px solid ${msg.role === 'user' ? theme.accentNavyMid + '20' : theme.borderSubtle}`,
-                    ...typeScale.caption,
-                    fontSize: 12,
-                    fontFamily: fontFamily.ui,
-                    color: theme.textSecondary,
-                    lineHeight: 1.55,
-                  }}
-                >
-                  {msg.text}
-                </div>
+          <div style={{ ...type.label, fontSize: 10, fontFamily: font, color: theme.textTertiary, marginBottom: sp[1] }}>Ask AI</div>
+          <div style={{
+            background: theme.hoverBg, borderRadius: radius.sm,
+            padding: `${sp.half}px ${sp[1]}px`, maxHeight: 140, overflowY: 'auto',
+          }}>
+            {chatMessages.map((m, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: sp.half }}>
+                <div style={{
+                  maxWidth: '85%', padding: `${sp.half}px ${sp[1]}px`, borderRadius: radius.sm,
+                  background: m.role === 'user' ? theme.interactive + '15' : theme.surface,
+                  border: `1px solid ${theme.border}`,
+                  ...type.caption, fontSize: 12, fontFamily: font, color: theme.textSecondary, lineHeight: 1.55,
+                }}>{m.text}</div>
               </div>
             ))}
             <div ref={chatEndRef} />
           </div>
-
-          {/* Input */}
-          <div style={{ display: 'flex', gap: spacing.xs, marginTop: spacing.xs }}>
-            <input
-              type="text"
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSend()}
-              placeholder="Ask about system health..."
+          <div style={{ display: 'flex', gap: sp.half, marginTop: sp.half }}>
+            <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSend()} placeholder="Ask about system health..."
               style={{
-                flex: 1,
-                height: 40,
-                background: theme.bgTertiary,
-                border: `1px solid ${theme.borderDefault}`,
-                borderRadius: radius.soft,
-                padding: `0 ${spacing.md}px`,
-                color: theme.textPrimary,
-                fontSize: 13,
-                fontFamily: fontFamily.ui,
-                outline: 'none',
-                transition: `border-color ${transitions.default}, box-shadow ${transitions.default}`,
+                flex: 1, height: 36, background: 'transparent', border: `1px solid ${theme.border}`,
+                borderRadius: radius.sm, padding: `0 ${sp[1]}px`, color: theme.textPrimary,
+                fontSize: 13, fontFamily: font, outline: 'none',
+                transition: `border-color ${dur.fast}ms ${ease.standard}, box-shadow ${dur.fast}ms ${ease.standard}`,
               }}
-              onFocus={e => {
-                e.currentTarget.style.borderColor = theme.accentNavyMid;
-                e.currentTarget.style.boxShadow = `0 0 0 3px ${theme.accentNavyMid}18`;
-              }}
-              onBlur={e => {
-                e.currentTarget.style.borderColor = theme.borderDefault;
-                e.currentTarget.style.boxShadow = 'none';
-              }}
+              onFocus={e => { e.currentTarget.style.borderColor = `${theme.interactive}50`; e.currentTarget.style.boxShadow = `0 0 0 3px ${theme.interactive}12`; }}
+              onBlur={e => { e.currentTarget.style.borderColor = theme.border; e.currentTarget.style.boxShadow = 'none'; }}
             />
-            <button
-              onClick={handleSend}
-              onMouseEnter={() => setSendHovered(true)}
-              onMouseLeave={() => setSendHovered(false)}
+            <button onClick={handleSend}
+              onMouseEnter={() => setSendHovered(true)} onMouseLeave={() => setSendHovered(false)}
               style={{
-                height: 40,
-                padding: `0 ${spacing.md}px`,
-                background: sendHovered ? theme.accentNavyMid : theme.accentNavy,
-                color: '#FFFFFF',
-                borderRadius: radius.soft,
-                fontSize: 13,
-                fontWeight: 500,
-                fontFamily: fontFamily.ui,
-                border: 'none',
-                cursor: 'pointer',
-                transition: `all ${transitions.default}`,
+                height: 36, padding: `0 ${sp[2]}px`,
+                background: sendHovered ? theme.navyMid : theme.interactive,
+                color: '#fff', borderRadius: radius.sm, fontSize: 13, fontWeight: 500, fontFamily: font,
+                border: 'none', cursor: 'pointer',
+                transition: `all ${dur.default}ms ${ease.spring}`,
                 transform: sendHovered ? 'translateY(-1px)' : 'translateY(0)',
-                boxShadow: sendHovered ? shadow.sm : 'none',
-              }}
-            >
-              Send
-            </button>
+                boxShadow: sendHovered ? '0 4px 12px rgba(27,58,107,0.2)' : 'none',
+              }}>Send</button>
           </div>
         </div>
       </div>
