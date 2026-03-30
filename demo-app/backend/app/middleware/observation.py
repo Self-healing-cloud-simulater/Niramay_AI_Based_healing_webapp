@@ -10,6 +10,7 @@ from app.core.observation_store import observation_store
 _EXCLUDED_PATHS = {
     "/api/v1/observation/logs",
     "/api/v1/detection/anomalies",
+    "/api/v1/healing/actions",
     "/health",
     "/",
     "/docs",

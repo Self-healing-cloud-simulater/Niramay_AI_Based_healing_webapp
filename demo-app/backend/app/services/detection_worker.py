@@ -49,7 +49,7 @@ async def detection_worker_loop():
             if detection_result["is_anomaly"]:
                 # --- HEALING LAYER ---
                 action = healing_service.decide_healing_action(log)
-                healing_result = await healing_service.execute_healing(action)
+                healing_result = await healing_service.execute_healing(action, log)
                 log["healing"] = healing_result
                 enriched_json = json.dumps(log)
                 healing_json = json.dumps(healing_result)
