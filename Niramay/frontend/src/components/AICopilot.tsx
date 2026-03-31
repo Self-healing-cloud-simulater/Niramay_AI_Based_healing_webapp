@@ -1,157 +1,314 @@
+/**
+ * AICopilot — AI recommendations, feature toggles, and chat interface.
+ * Glass panel. Skeuomorphic toggle switches. Severity-colored recommendations.
+ * Chat with styled bubbles. All business logic preserved.
+ */
+
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import {
-  useTheme, glass, AI_RECOMMENDATIONS,
-  type, font, sp, radius, ease, dur,
-} from '../designSystem';
+import { AI_RECOMMENDATIONS, useTheme, createRipple } from '../designSystem';
 
 export default function AICopilot() {
-  const { theme, isDark } = useTheme();
-  const [features, setFeatures] = useState({ predictive: false, rootCause: false, smartPriority: false });
+  const { isDark } = useTheme();
+  const [features, setFeatures] = useState({
+    predictive: false,
+    rootCause: false,
+    smartPriority: false,
+  });
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'ai'; text: string }>>([
-    { role: 'ai', text: "I'm your AI Copilot. Once integrated, I'll provide real-time fault analysis and healing recommendations." },
+    { role: 'ai', text: "I'm monitoring your infrastructure. Ask about system health, patterns, or recommendations." },
   ]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
 
   const handleSend = () => {
     if (!chatInput.trim()) return;
-    const q = chatInput.trim(); setChatInput('');
+    const q = chatInput.trim();
+    setChatInput('');
     setChatMessages(p => [...p, { role: 'user', text: q }]);
     setTimeout(() => {
-      setChatMessages(p => [...p, { role: 'ai', text: `Noted: "${q}". ML models will provide precise insights in the next phase.` }]);
+      setChatMessages(p => [...p, {
+        role: 'ai',
+        text: `Analyzing: "${q}". ML models will surface precise insights in the next iteration.`,
+      }]);
     }, 1200);
   };
 
-  const sev = (s: string) => s === 'high' ? theme.error : s === 'medium' ? theme.warning : theme.navyMid;
-  const sevBg = (s: string) => s === 'high' ? theme.errorBg : s === 'medium' ? theme.warningBg : theme.hoverBg;
+  const sevDot = (s: string): string =>
+    s === 'high' ? 'error' : s === 'medium' ? 'warning' : 'neutral';
 
-  const Mini = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
-    <button onClick={onToggle} role="switch" aria-checked={on} style={{
-      width: 30, height: 16, borderRadius: radius.pill, padding: 2,
-      background: on ? theme.navy : theme.border, cursor: 'pointer', border: 'none',
-      transition: `background ${dur.base}ms ${ease.standard}`, flexShrink: 0,
-    }}>
-      <span style={{
-        display: 'block', width: 12, height: 12, borderRadius: '50%', background: '#fff',
-        transform: `translateX(${on ? 14 : 0}px)`,
-        transition: `transform ${dur.slow}ms ${ease.spring}`,
-        boxShadow: '0 1px 2px rgba(0,0,0,0.12)',
-      }} />
-    </button>
-  );
+  const sevBadge = (s: string): string =>
+    s === 'high' ? 'badge-error' : s === 'medium' ? 'badge-warning' : 'badge-neutral';
 
   return (
-    <div style={{ ...glass(isDark), borderRadius: radius.lg, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div id="ai-copilot" className="glass card-glass" style={{
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden',
+    }}>
+      {/* Header */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: `${sp[2]}px ${sp[4]}px`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 'var(--space-5) var(--space-6) var(--space-3)',
       }}>
-        <span style={{ ...type.label, fontFamily: font, color: theme.textTertiary }}>AI Copilot</span>
         <span style={{
-          ...type.caption, fontSize: 9, fontWeight: 400, fontFamily: font,
-          color: theme.navyMid, background: theme.hoverBg,
-          padding: '2px 8px', borderRadius: radius.pill, letterSpacing: '0.06em', textTransform: 'uppercase',
-        }}>Preview</span>
+          fontFamily: 'var(--font-display)',
+          fontSize: 'var(--text-md)',
+          color: 'var(--color-text-primary)',
+        }}>
+          AI Copilot
+        </span>
+        <span className="badge badge-neutral" style={{
+          background: 'var(--color-accent-tertiary)',
+          color: 'var(--color-accent-primary)',
+        }}>
+          Preview
+        </span>
       </div>
 
-      <div style={{ flex: 1, padding: `${sp[1]}px ${sp[4]}px ${sp[3]}px`, maxHeight: 420, overflowY: 'auto' }}>
-        {/* Features */}
-        <div style={{ marginBottom: sp[4] }}>
-          <div style={{ ...type.label, fontSize: 9, fontFamily: font, color: theme.textTertiary, marginBottom: sp[2] }}>Features</div>
+      <div className="scroll-fade" style={{
+        flex: 1,
+        padding: 'var(--space-2) var(--space-6) var(--space-6)',
+        maxHeight: 480,
+        overflowY: 'auto',
+      }}>
+
+        {/* ── Feature Toggles ── */}
+        <div style={{ marginBottom: 'var(--space-8)' }}>
+          <div style={{
+            fontSize: 'var(--text-xs)',
+            fontWeight: 'var(--font-weight-medium)' as any,
+            letterSpacing: 'var(--tracking-widest)',
+            textTransform: 'uppercase',
+            color: 'var(--color-text-tertiary)',
+            marginBottom: 'var(--space-4)',
+          }}>
+            Features
+          </div>
           {([
             { key: 'predictive' as const, label: 'Predictive Healing' },
             { key: 'rootCause' as const, label: 'Root Cause Analysis' },
             { key: 'smartPriority' as const, label: 'Smart Prioritization' },
           ]).map(f => (
-            <div key={f.key} className="nr-row" style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              padding: `${sp[1]+4}px 0`, borderBottom: `1px solid ${theme.border}`,
+            <div key={f.key} style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: 'var(--space-3) 0',
+              borderBottom: '1px solid var(--color-border-subtle)',
             }}>
-              <span style={{ ...type.bodySm, fontWeight: 400, fontFamily: font, color: theme.textPrimary }}>{f.label}</span>
-              <Mini on={features[f.key]} onToggle={() => setFeatures(x => ({ ...x, [f.key]: !x[f.key] }))} />
+              <span style={{
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-text-primary)',
+              }}>{f.label}</span>
+
+              {/* Skeuomorphic toggle */}
+              <button
+                role="switch"
+                aria-checked={features[f.key]}
+                aria-label={`Toggle ${f.label}`}
+                onClick={() => setFeatures(x => ({ ...x, [f.key]: !x[f.key] }))}
+                style={{
+                  width: 40,
+                  height: 22,
+                  borderRadius: 'var(--radius-full)',
+                  padding: 2,
+                  cursor: 'pointer',
+                  border: 'none',
+                  flexShrink: 0,
+                  background: features[f.key]
+                    ? 'linear-gradient(135deg, var(--color-accent-primary), var(--color-accent-secondary))'
+                    : isDark
+                      ? 'rgba(255, 248, 235, 0.08)'
+                      : 'rgba(28, 24, 18, 0.08)',
+                  boxShadow: features[f.key]
+                    ? '0 2px 8px rgba(196, 101, 58, 0.25), inset 0 1px 0 rgba(255,255,255,0.15)'
+                    : isDark
+                      ? 'inset 2px 2px 4px rgba(0,0,0,0.3), inset -1px -1px 2px rgba(255,255,255,0.03)'
+                      : 'inset 2px 2px 4px rgba(174, 168, 157, 0.3), inset -2px -2px 4px rgba(255,255,255,0.6)',
+                  transition: 'background 250ms var(--ease-out-expo), box-shadow 250ms var(--ease-out-expo)',
+                }}
+              >
+                <span style={{
+                  display: 'block',
+                  width: 18,
+                  height: 18,
+                  borderRadius: '50%',
+                  background: features[f.key]
+                    ? '#fff'
+                    : isDark
+                      ? 'rgba(240, 235, 227, 0.3)'
+                      : 'rgba(28, 24, 18, 0.15)',
+                  transform: `translateX(${features[f.key] ? 18 : 0}px)`,
+                  transition: 'transform 400ms cubic-bezier(0.34, 1.56, 0.64, 1), background 250ms ease',
+                  boxShadow: features[f.key]
+                    ? '0 1px 4px rgba(0,0,0,0.15)'
+                    : 'none',
+                }} />
+              </button>
             </div>
           ))}
         </div>
 
-        {/* Recommendations */}
-        <div style={{ marginBottom: sp[4] }}>
-          <div style={{ ...type.label, fontSize: 9, fontFamily: font, color: theme.textTertiary, marginBottom: sp[2] }}>Recommendations</div>
+        {/* ── Recommendations ── */}
+        <div style={{ marginBottom: 'var(--space-8)' }}>
+          <div style={{
+            fontSize: 'var(--text-xs)',
+            fontWeight: 'var(--font-weight-medium)' as any,
+            letterSpacing: 'var(--tracking-widest)',
+            textTransform: 'uppercase',
+            color: 'var(--color-text-tertiary)',
+            marginBottom: 'var(--space-4)',
+          }}>
+            Recommendations
+          </div>
           {AI_RECOMMENDATIONS.map(rec => (
-            <motion.div key={rec.id} className="nr-row"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            <motion.div
+              key={rec.id}
+              className="row-interactive"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: rec.id * 0.06 }}
               style={{
-                borderLeft: `2px solid ${sev(rec.severity)}`,
-                borderRadius: radius.sm, padding: `${sp[2]}px ${sp[2]}px`, marginBottom: sp[1],
-                transition: `box-shadow ${dur.base}ms ${ease.out}`,
+                padding: 'var(--space-3) var(--space-2)',
+                marginBottom: 'var(--space-1)',
+                cursor: 'default',
               }}
-              onMouseEnter={e => (e.currentTarget.style.boxShadow = theme.hoverShadow)}
-              onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
             >
-              <span style={{
-                ...type.caption, fontSize: 9, fontWeight: 400, fontFamily: font,
-                color: sev(rec.severity), textTransform: 'uppercase', letterSpacing: '0.06em',
-              }}>{rec.severity}</span>
-              <div style={{ ...type.bodySm, fontWeight: 500, fontFamily: font, color: theme.textPrimary, marginTop: sp.half, lineHeight: 1.4 }}>{rec.title}</div>
-              {/* Progressive disclosure — description + action hidden until hover */}
-              <div className="nr-reveal" style={{ marginTop: sp[1] }}>
-                <div style={{ ...type.caption, fontFamily: font, color: theme.textTertiary, lineHeight: 1.5 }}>{rec.desc}</div>
-                <button className="nr-btn" style={{
-                  width: '100%', marginTop: sp[1], padding: `6px ${sp[2]}px`,
-                  background: 'transparent', border: `1px solid ${theme.border}`,
-                  borderRadius: radius.sm, color: theme.navy, fontSize: 11, fontWeight: 400, fontFamily: font,
-                }}
-                  onMouseEnter={e => { e.currentTarget.style.background = theme.navy; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = theme.navy; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = theme.navy; e.currentTarget.style.borderColor = theme.border; }}
-                >{rec.action}</button>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                marginBottom: 'var(--space-1)',
+              }}>
+                <span className={`dot dot-${sevDot(rec.severity)}`} />
+                <span className={`badge ${sevBadge(rec.severity)}`}>
+                  {rec.severity}
+                </span>
+              </div>
+
+              <div style={{
+                fontSize: 'var(--text-sm)',
+                color: 'var(--color-text-primary)',
+                lineHeight: 'var(--leading-normal)',
+                paddingLeft: 'var(--space-4)',
+              }}>
+                {rec.title}
+              </div>
+
+              {/* Progressive disclosure */}
+              <div className="reveal-on-hover" style={{ paddingLeft: 'var(--space-4)', marginTop: 'var(--space-2)' }}>
+                <div style={{
+                  fontSize: 'var(--text-xs)',
+                  color: 'var(--color-text-tertiary)',
+                  lineHeight: 'var(--leading-normal)',
+                  marginBottom: 'var(--space-2)',
+                }}>
+                  {rec.desc}
+                </div>
+                <button
+                  className="btn-ghost ripple-host"
+                  onClick={(e) => createRipple(e)}
+                  style={{
+                    padding: '5px 14px',
+                    fontSize: 'var(--text-xs)',
+                  }}
+                >
+                  {rec.action}
+                </button>
               </div>
             </motion.div>
           ))}
         </div>
 
-        {/* Chat */}
+        {/* ── Chat ── */}
         <div>
-          <div style={{ ...type.label, fontSize: 9, fontFamily: font, color: theme.textTertiary, marginBottom: sp[2] }}>Converse</div>
           <div style={{
-            borderRadius: radius.sm, padding: `${sp[1]}px`, maxHeight: 120, overflowY: 'auto',
-            background: theme.hoverBg,
+            fontSize: 'var(--text-xs)',
+            fontWeight: 'var(--font-weight-medium)' as any,
+            letterSpacing: 'var(--tracking-widest)',
+            textTransform: 'uppercase',
+            color: 'var(--color-text-tertiary)',
+            marginBottom: 'var(--space-4)',
+          }}>
+            Converse
+          </div>
+
+          {/* Messages */}
+          <div style={{
+            borderRadius: 'var(--radius-lg)',
+            padding: 'var(--space-3)',
+            maxHeight: 160,
+            overflowY: 'auto',
+            background: 'var(--color-bg-sunken)',
+            border: '1px solid var(--color-border-subtle)',
+            marginBottom: 'var(--space-3)',
           }}>
             {chatMessages.map((m, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: sp.half }}>
+              <div key={i} style={{
+                display: 'flex',
+                justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start',
+                marginBottom: 'var(--space-2)',
+              }}>
                 <div style={{
-                  maxWidth: '82%', padding: `${sp.half}px ${sp[1]}px`, borderRadius: radius.sm,
-                  background: m.role === 'user' ? `${theme.navy}10` : theme.surface,
-                  border: `1px solid ${theme.border}`,
-                  ...type.caption, fontSize: 11, fontFamily: font, color: theme.textSecondary, lineHeight: 1.55,
-                }}>{m.text}</div>
+                  maxWidth: '82%',
+                  padding: 'var(--space-2) var(--space-3)',
+                  borderRadius: m.role === 'user'
+                    ? 'var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg)'
+                    : 'var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm)',
+                  background: m.role === 'user'
+                    ? 'var(--color-accent-tertiary)'
+                    : 'var(--color-bg-elevated)',
+                  border: '1px solid var(--color-border-subtle)',
+                  fontSize: 'var(--text-xs)',
+                  lineHeight: 'var(--leading-normal)',
+                  color: m.role === 'user' ? 'var(--color-accent-primary)' : 'var(--color-text-secondary)',
+                }}>
+                  {m.text}
+                </div>
               </div>
             ))}
             <div ref={chatEndRef} />
           </div>
-          <div style={{ display: 'flex', gap: sp.half, marginTop: sp[1] }}>
-            <input type="text" value={chatInput} onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSend()} placeholder="Ask about system health..."
+
+          {/* Input */}
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <input
+              id="copilot-chat-input"
+              type="text"
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSend()}
+              placeholder="Ask about system health…"
+              className="input"
               style={{
-                flex: 1, height: 36, background: 'transparent', border: `1px solid transparent`,
-                borderRadius: radius.sm, padding: `0 ${sp[2]}px`, color: theme.textPrimary,
-                fontSize: 13, fontWeight: 300, fontFamily: font, outline: 'none',
-                transition: `border-color ${dur.fast}ms ${ease.standard}, box-shadow ${dur.fast}ms ${ease.standard}`,
+                flex: 1,
+                height: 40,
+                padding: '0 var(--space-4)',
+                fontSize: 'var(--text-sm)',
+                borderRadius: 'var(--radius-md)',
               }}
-              onFocus={e => { e.currentTarget.style.borderColor = `${theme.navy}30`; e.currentTarget.style.boxShadow = `0 0 0 3px ${theme.navy}08`; }}
-              onBlur={e => { e.currentTarget.style.borderColor = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}
             />
-            <button onClick={handleSend} className="nr-btn"
+            <button
+              id="copilot-send-btn"
+              onClick={handleSend}
+              className="btn-primary ripple-host"
+              onMouseDown={(e) => createRipple(e)}
               style={{
-                height: 36, padding: `0 ${sp[3]}px`,
-                background: theme.navy, color: '#fff',
-                borderRadius: radius.sm, fontSize: 13, fontWeight: 400, fontFamily: font,
-                border: 'none',
+                height: 40,
+                padding: '0 var(--space-5)',
+                fontSize: 'var(--text-xs)',
+                borderRadius: 'var(--radius-md)',
               }}
-              onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = theme.hoverShadow; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
-            >Send</button>
+            >
+              Send
+            </button>
           </div>
         </div>
       </div>

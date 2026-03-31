@@ -1,112 +1,175 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  useTheme, glass, timeAgo,
-  type, font, sp, radius, ease, dur, type HealingAction,
-} from '../designSystem';
-import EmptyState from './EmptyState';
+/**
+ * HealingActionsPanel — Healing action feed.
+ * Glass panel. Action type pill badges. Icon containers.
+ * Progressive disclosure on hover. All data contracts preserved.
+ */
 
-function Icon({ action, color }: { action: string; color: string }) {
-  const s = 13;
+import { motion, AnimatePresence } from 'framer-motion';
+import { timeAgo, type HealingAction } from '../designSystem';
+import EmptyState from './EmptyState';
+import { SkeletonRow } from './SkeletonBlock';
+
+function ActionIcon({ action }: { action: string }) {
+  const s = 15;
+  const stroke = 'var(--color-accent-primary)';
   if (action === 'restart_service') return (
-    <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round">
-      <path d="M1 8a7 7 0 0 1 13.2-3.2"/><path d="M15 8a7 7 0 0 1-13.2 3.2"/>
-      <polyline points="1,3 1,8 5,7"/><polyline points="15,13 15,8 11,9"/>
+    <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={stroke} strokeWidth="1.3" strokeLinecap="round">
+      <path d="M1 8a7 7 0 0 1 13.2-3.2" /><path d="M15 8a7 7 0 0 1-13.2 3.2" />
+      <polyline points="1,3 1,8 5,7" /><polyline points="15,13 15,8 11,9" />
     </svg>
   );
   if (action === 'retry_request') return (
-    <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round">
-      <polyline points="1,1 1,6 6,6"/><path d="M1 6 C3 3, 6 1, 8 1 a7 7 0 1 1-5 12"/>
+    <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={stroke} strokeWidth="1.3" strokeLinecap="round">
+      <polyline points="1,1 1,6 6,6" /><path d="M1 6 C3 3, 6 1, 8 1 a7 7 0 1 1-5 12" />
     </svg>
   );
   return (
-    <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth="1.2" strokeLinecap="round">
-      <circle cx="8" cy="8" r="6"/><line x1="8" y1="5" x2="8" y2="8"/><line x1="8" y1="8" x2="10" y2="10"/>
+    <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={stroke} strokeWidth="1.3" strokeLinecap="round">
+      <circle cx="8" cy="8" r="6" /><line x1="8" y1="5" x2="8" y2="8" /><line x1="8" y1="8" x2="10" y2="10" />
     </svg>
   );
 }
 
 export default function HealingActionsPanel({ actions }: { actions: HealingAction[] }) {
-  const { theme, isDark } = useTheme();
-  const byType = actions.reduce<Record<string, number>>((a, x) => {
-    a[x.healing_action] = (a[x.healing_action] || 0) + 1; return a;
+  const byType = actions.reduce<Record<string, number>>((acc, x) => {
+    acc[x.healing_action] = (acc[x.healing_action] || 0) + 1;
+    return acc;
   }, {});
 
   return (
-    <div style={{ ...glass(isDark), borderRadius: radius.lg, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+    <div
+      id="healing-actions"
+      className="glass card-glass"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Header */}
       <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: `${sp[2]}px ${sp[4]}px`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 'var(--space-5) var(--space-6) var(--space-3)',
       }}>
-        <span style={{ ...type.label, fontFamily: font, color: theme.textTertiary }}>Healing</span>
         <span style={{
-          ...type.caption, fontFamily: font, fontWeight: 400,
-          color: actions.length > 0 ? theme.success : theme.textTertiary,
-          background: actions.length > 0 ? theme.successBg : 'transparent',
-          padding: '2px 8px', borderRadius: radius.pill,
-        }}>{actions.length}</span>
+          fontFamily: 'var(--font-display)',
+          fontSize: 'var(--text-md)',
+          color: 'var(--color-text-primary)',
+        }}>
+          Healing
+        </span>
+        {actions.length > 0 && (
+          <span className="badge badge-success">{actions.length} healed</span>
+        )}
       </div>
 
+      {/* Action type chips */}
       {Object.keys(byType).length > 0 && (
-        <div style={{ display: 'flex', gap: sp.half, padding: `0 ${sp[4]}px ${sp[1]}px`, flexWrap: 'wrap' }}>
+        <div style={{
+          display: 'flex',
+          gap: 'var(--space-2)',
+          padding: '0 var(--space-6) var(--space-3)',
+          flexWrap: 'wrap',
+        }}>
           {Object.entries(byType).map(([t, c]) => (
-            <div key={t} style={{
-              display: 'flex', gap: 4, alignItems: 'center',
-              ...type.caption, fontSize: 9, fontFamily: font, color: theme.textSecondary,
-              padding: '2px 8px', borderRadius: radius.pill, background: theme.hoverBg,
+            <span key={t} className="badge badge-neutral" style={{
+              gap: 'var(--space-1)',
             }}>
-              <Icon action={t} color={theme.navy} />
-              <span>{t.replace(/_/g, ' ')}</span>
-              <span style={{ fontWeight: 500 }}>×{c}</span>
-            </div>
+              {t.replace(/_/g, ' ')}
+              <strong style={{ fontWeight: 'var(--font-weight-semibold)' as any }}>
+                {c}
+              </strong>
+            </span>
           ))}
         </div>
       )}
 
-      <div style={{ flex: 1, padding: `${sp[1]}px ${sp[3]}px ${sp[3]}px`, maxHeight: 360, overflowY: 'auto' }}>
+      {/* Action rows */}
+      <div className="scroll-fade" style={{
+        flex: 1,
+        padding: 'var(--space-2) var(--space-6) var(--space-6)',
+        maxHeight: 360,
+        overflowY: 'auto',
+      }}>
         {actions.length === 0 ? (
           <EmptyState headline="No healing actions yet" />
         ) : (
           <AnimatePresence initial={false}>
             {actions.map((a, i) => (
-              <motion.div key={`${a.timestamp}-${i}`}
-                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.25, delay: Math.min(i * 0.04, 0.4) }}
-                className="nr-row"
-                style={{
-                  display: 'flex', gap: sp[2], alignItems: 'flex-start',
-                  padding: `${sp[2]}px 0`,
-                  borderBottom: `1px solid ${theme.border}`,
-                  transition: `box-shadow ${dur.base}ms ${ease.out}`,
+              <motion.div
+                key={`${a.timestamp}-${i}`}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: 0.3,
+                  delay: Math.min(i * 0.04, 0.4),
+                  ease: [0.16, 1, 0.3, 1],
                 }}
-                onMouseEnter={e => (e.currentTarget.style.boxShadow = theme.hoverShadow)}
-                onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}
+                className="row-interactive"
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 'var(--space-3)',
+                  padding: 'var(--space-3) var(--space-2)',
+                  cursor: 'default',
+                }}
               >
+                {/* Icon container */}
                 <div style={{
-                  width: 28, height: 28, borderRadius: radius.sm,
-                  background: theme.hoverBg, display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2,
+                  width: 32,
+                  height: 32,
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--color-accent-tertiary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  marginTop: 2,
                 }}>
-                  <Icon action={a.healing_action} color={theme.navy} />
+                  <ActionIcon action={a.healing_action} />
                 </div>
+
+                {/* Content */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ ...type.bodySm, fontWeight: 500, fontFamily: font, color: theme.textPrimary, textTransform: 'capitalize' }}>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: 2,
+                  }}>
+                    <span style={{
+                      fontSize: 'var(--text-sm)',
+                      fontWeight: 'var(--font-weight-regular)' as any,
+                      color: 'var(--color-text-primary)',
+                      textTransform: 'capitalize',
+                    }}>
                       {a.healing_action.replace(/_/g, ' ')}
                     </span>
-                    <span style={{
-                      ...type.caption, fontSize: 9, fontWeight: 400, fontFamily: font,
-                      color: a.status === 'success' ? theme.success : theme.warning,
-                      background: a.status === 'success' ? theme.successBg : theme.warningBg,
-                      padding: '1px 6px', borderRadius: radius.pill,
-                    }}>{a.status}</span>
+
+                    <span className={`dot dot-${a.status === 'success' ? 'success' : 'warning'}`} />
                   </div>
-                  {/* Progressive disclosure — message revealed on hover */}
-                  <div className="nr-reveal" style={{ ...type.caption, fontFamily: font, color: theme.textTertiary, lineHeight: 1.5, marginTop: 2 }}>
+
+                  {/* Message — revealed on hover */}
+                  <div className="reveal-on-hover" style={{
+                    fontSize: 'var(--text-xs)',
+                    color: 'var(--color-text-tertiary)',
+                    lineHeight: 'var(--leading-normal)',
+                    marginTop: 2,
+                  }}>
                     {a.message}
                   </div>
-                  <div className="nr-subtle" style={{ ...type.caption, fontSize: 9, fontFamily: font, color: theme.textTertiary, marginTop: 2 }}>
+
+                  {/* Time */}
+                  <span className="subtle-on-hover" style={{
+                    fontSize: 10,
+                    color: 'var(--color-text-tertiary)',
+                    marginTop: 'var(--space-1)',
+                    display: 'block',
+                  }}>
                     {timeAgo(a.timestamp)}
-                  </div>
+                  </span>
                 </div>
               </motion.div>
             ))}
