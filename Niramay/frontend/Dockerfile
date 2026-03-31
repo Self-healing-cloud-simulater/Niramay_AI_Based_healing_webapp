@@ -3,7 +3,7 @@ FROM node:20-slim
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install
+RUN rm -f package-lock.json && npm install
 
 # Copy source files only (not node_modules)
 COPY index.html tsconfig.json vite.config.ts ./

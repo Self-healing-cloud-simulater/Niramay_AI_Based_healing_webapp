@@ -1,8 +1,9 @@
 /**
- * Niramay Design System — Module
+ * Niramay Design System v2.0
  *
- * Warm stone + ink + copper. Instrument Serif display, DM Sans body.
- * data-theme="light|dark" on <html>. Luxon for dates. AOS for scroll.
+ * Cyber-dark + Warm-light dual theme.
+ * Space Grotesk display, Inter body, JetBrains Mono code.
+ * data-theme="light|dark" on <html>. Luxon dates. AOS scroll.
  * All data types and API contracts preserved exactly.
  */
 
@@ -23,13 +24,13 @@ interface ThemeCtx {
 }
 
 const ThemeContext = createContext<ThemeCtx>({
-  isDark: false,
+  isDark: true,
   toggleTheme: () => {},
 });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [isDark, setIsDark] = useState(() => {
-    if (typeof window === 'undefined') return false;
+    if (typeof window === 'undefined') return true;
     const stored = localStorage.getItem('niramay-theme');
     if (stored) return stored === 'dark';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -41,18 +42,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const theme = next ? 'dark' : 'light';
       localStorage.setItem('niramay-theme', theme);
 
-      // Add transition class
       document.documentElement.classList.add('theme-transitioning');
       document.documentElement.setAttribute('data-theme', theme);
 
-      // Update meta theme-color
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute('content', next ? '#13110F' : '#F5F2ED');
+      if (meta) meta.setAttribute('content', next ? '#0A0E17' : '#F5F2ED');
 
-      // Remove transition class after animation
       setTimeout(() => {
         document.documentElement.classList.remove('theme-transitioning');
-      }, 350);
+      }, 400);
 
       return next;
     });
@@ -62,10 +60,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const theme = isDark ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', theme);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', isDark ? '#13110F' : '#F5F2ED');
+    if (meta) meta.setAttribute('content', isDark ? '#0A0E17' : '#F5F2ED');
   }, [isDark]);
 
-  // Initialize AOS once
   useEffect(() => {
     AOS.init({
       duration: 700,
@@ -88,7 +85,7 @@ export function useTheme() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   DATA TYPES — SACRED (unchanged)
+   DATA TYPES — SACRED (unchanged from v1)
    ═══════════════════════════════════════════════════════════════════ */
 
 export interface ObservationLog {
@@ -134,13 +131,12 @@ export interface HealingAction {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   UTILITIES — now using Luxon
+   UTILITIES — Luxon-based
    ═══════════════════════════════════════════════════════════════════ */
 
 export function timeAgo(ts: string): string {
   const dt = DateTime.fromISO(ts);
   if (!dt.isValid) {
-    // Fallback for non-ISO timestamps
     const d = Date.now() - new Date(ts).getTime();
     if (d < 1000) return 'now';
     if (d < 60000) return `${Math.floor(d / 1000)}s`;
