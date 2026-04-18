@@ -14,3 +14,9 @@ structlog==23.2.0
 
 # HTTP (for traffic generator)
 httpx==0.25.2
+
+# Database
+sqlalchemy==2.0.23
+# psycopg2-binary==2.9.9
+
+docker==6.1.3

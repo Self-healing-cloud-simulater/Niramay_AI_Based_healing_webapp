@@ -1,0 +1,14 @@
+
+> niramay@1.0.0 dev
+> vite --host
+
+Re-optimizing dependencies because lockfile has changed
+
+  VITE v5.4.21  ready in 1097 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://127.0.2.2:3000/
+  ➜  Network: http://127.0.2.3:3000/
+  ➜  Network: http://192.168.0.101:3000/
+  ➜  Network: http://172.16.0.2:3000/
+  ➜  press h + enter to show help

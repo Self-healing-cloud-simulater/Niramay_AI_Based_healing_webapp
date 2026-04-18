@@ -10,8 +10,8 @@ import time
 from app.core.config import settings
 from app.core.failure_middleware import FailureSimulationMiddleware
 from app.core.logging import logger, log_request
-from app.middleware.observation import ObservationMiddleware
-from app.api.routes import router as api_router
+from app.observation.middleware import ObservationMiddleware
+from app.api.v1.endpoints import router as api_router
 
 # Create FastAPI application
 app = FastAPI(
@@ -121,8 +121,17 @@ async def startup_event():
     """Initialize application on startup"""
     logger.info("Application starting", app_name=settings.APP_NAME, version=settings.APP_VERSION)
 
+    # Initialize SQL Database (Create tables if they don't exist)
+    try:
+        from app.db.session import engine, Base
+        import app.db.models # Ensure models are registered
+        Base.metadata.create_all(bind=engine)
+        logger.info("SQL Database initialized successfully")
+    except Exception as e:
+        logger.error("Failed to initialize SQL Database", error=str(e))
+
     # Start the Detection Worker (Observation → Detection → Healing pipeline)
-    from app.services.detection_worker import start_detection_worker
+    from app.detection.worker import start_detection_worker
     start_detection_worker()
 
     # Start the Traffic Generator (creates synthetic API traffic for the demo)
@@ -130,11 +139,15 @@ async def startup_event():
         from app.traffic_generator import start_traffic_generator
         start_traffic_generator(interval_ms=settings.TRAFFIC_GENERATOR_INTERVAL_MS)
 
-        # Enable some failure scenarios by default so the dashboard has interesting data
-        from app.core.failure_config import failure_simulator
-        failure_simulator.enable_scenario("database_error")
-        failure_simulator.enable_scenario("service_overload")
-        logger.info("Enabled default failure scenarios for demo: database_error, service_overload")
+    # Start the Healing Verification Worker
+    from app.healing.verification_worker import start_verification_worker
+    start_verification_worker()
+
+    # Enable some failure scenarios by default so the dashboard has interesting data
+    from app.core.failure_config import failure_simulator
+    failure_simulator.enable_scenario("database_error")
+    # failure_simulator.enable_scenario("service_overload")
+    logger.info("Enabled default failure scenarios for demo: database_error")
 
 
 # Shutdown event

@@ -89,45 +89,55 @@ export function useTheme() {
    ═══════════════════════════════════════════════════════════════════ */
 
 export interface ObservationLog {
+  id: number;
   timestamp: string;
+  service: string;
   endpoint: string;
   method: string;
   status_code: number;
-  response_time_ms: number;
-  request_id: string;
+  response_time: number;
   failure_type: string;
+  request_id: string;
+  metadata_json?: any;
 }
 
-export interface AnomalyData {
-  total: number;
-  filtered: number;
-  anomalies: Array<{
-    timestamp: string;
-    endpoint: string;
-    method: string;
-    status_code: number;
-    response_time_ms: number;
-    anomaly_score: number;
-    anomaly_reasons: string[];
-    failure_type: string;
-    healing?: {
-      healing_action: string;
-      status: string;
-      message: string;
-      timestamp: string;
-    };
-  }>;
-  stats: {
-    by_endpoint: Record<string, number>;
-    by_type: Record<string, number>;
+export interface AnomalyLog {
+  id: number;
+  log_id: number;
+  timestamp: string;
+  is_anomaly: boolean;
+  anomaly_score: number;
+  anomaly_reasons: string[];
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  requires_llm_analysis: boolean;
+  ai_analysis?: {
+    root_cause: string;
+    confidence: number;
+    suggested_action: string;
+    analysis_type: string;
+    skipped?: boolean;
+    reason?: string;
   };
+  log?: ObservationLog;
+}
+
+export interface SystemStats {
+  total_logs: number;
+  total_anomalies: number;
+  health_score: number;
+  window_health_score: number;
+  by_endpoint: Record<string, number>;
+  by_type: Record<string, number>;
 }
 
 export interface HealingAction {
-  healing_action: string;
+  id: number;
+  action: string;
   status: string;
   timestamp: string;
   message: string;
+  verification_status: string;
+  verification_timestamp?: string;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

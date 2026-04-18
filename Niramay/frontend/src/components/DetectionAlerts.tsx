@@ -7,31 +7,37 @@
 import { useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Chart, registerables } from 'chart.js';
-import { timeAgo, useTheme, type AnomalyData } from '../designSystem';
+import { timeAgo, useTheme, type AnomalyLog, type SystemStats } from '../designSystem';
 import EmptyState from './EmptyState';
 import { SkeletonRow, SkeletonChart } from './SkeletonBlock';
 
 Chart.register(...registerables);
 
-function severityDot(score: number): string {
-  if (score >= 5) return 'error';
-  if (score >= 3) return 'warning';
+function severityDot(severity: string): string {
+  if (severity === 'critical' || severity === 'high') return 'error';
+  if (severity === 'medium') return 'warning';
   return 'neutral';
 }
 
-export default function DetectionAlerts({ data }: { data: AnomalyData | null }) {
+export default function DetectionAlerts({ 
+  anomalies, 
+  stats 
+}: { 
+  anomalies: AnomalyLog[];
+  stats: SystemStats | null;
+}) {
   const { isDark } = useTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
 
   const chartData = useMemo(
-    () => data?.stats?.by_type
-      ? Object.entries(data.stats.by_type).map(([name, count]) => ({
+    () => stats?.by_type
+      ? Object.entries(stats.by_type).map(([name, count]) => ({
           name: name.replace(/_/g, ' '),
           count,
         }))
       : [],
-    [data]
+    [stats]
   );
 
   // Chart.js bar chart
@@ -129,8 +135,8 @@ export default function DetectionAlerts({ data }: { data: AnomalyData | null }) 
         }}>
           Detection
         </span>
-        {data && data.total > 0 && (
-          <span className="badge badge-warning">{data.total} anomalies</span>
+        {stats && stats.total_anomalies > 0 && (
+          <span className="badge badge-warning">{stats.total_anomalies} anomalies</span>
         )}
       </div>
 
@@ -139,7 +145,7 @@ export default function DetectionAlerts({ data }: { data: AnomalyData | null }) 
         <div style={{ padding: '0 var(--space-6)', height: 72, opacity: 0.8 }}>
           <canvas ref={canvasRef} style={{ width: '100%', height: '100%' }} />
         </div>
-      ) : data === null ? (
+      ) : stats === null ? (
         <SkeletonChart />
       ) : null}
 
@@ -150,17 +156,18 @@ export default function DetectionAlerts({ data }: { data: AnomalyData | null }) 
         maxHeight: 360,
         overflowY: 'auto',
       }}>
-        {!data ? (
+        {stats === null ? (
           <div>
             <SkeletonRow /><SkeletonRow /><SkeletonRow />
           </div>
-        ) : data.anomalies.length === 0 ? (
+        ) : anomalies.length === 0 ? (
           <EmptyState headline="No anomalies detected" />
         ) : (
           <AnimatePresence initial={false}>
-            {data.anomalies.map((a, i) => (
-              <motion.div
-                key={`${a.timestamp}-${i}`}
+            {(anomalies || []).map((a, i) => 
+              a ? (
+                <motion.div
+                  key={`${a.timestamp}-${i}`}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -182,12 +189,12 @@ export default function DetectionAlerts({ data }: { data: AnomalyData | null }) 
                   gap: 'var(--space-2)',
                   marginBottom: 'var(--space-1)',
                 }}>
-                  <span className={`dot dot-${severityDot(a.anomaly_score)}`} />
+                  <span className={`dot dot-${severityDot(a.severity)}`} />
 
                   <span style={{
                     fontFamily: 'var(--font-mono)',
                     fontSize: 'var(--text-xs)',
-                    color: `var(--color-status-${severityDot(a.anomaly_score)})`,
+                    color: `var(--color-status-${severityDot(a.severity)})`,
                     fontVariantNumeric: 'tabular-nums',
                   }}>
                     {a.anomaly_score.toFixed(1)}
@@ -203,6 +210,10 @@ export default function DetectionAlerts({ data }: { data: AnomalyData | null }) 
                   }}>
                     {a.method}
                   </span>
+
+                  {a.requires_llm_analysis && (
+                    <span className="badge badge-accent" style={{ fontSize: 8, padding: '0 4px' }}>AI</span>
+                  )}
 
                   <span style={{ flex: 1 }} />
 
@@ -246,7 +257,8 @@ export default function DetectionAlerts({ data }: { data: AnomalyData | null }) 
                   </div>
                 )}
               </motion.div>
-            ))}
+            ) : null
+          )}
           </AnimatePresence>
         )}
       </div>

@@ -8,7 +8,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { useTheme, createRipple, formatTimestamp, type ObservationLog, type AnomalyData, type HealingAction } from '../designSystem';
+import { useTheme, createRipple, type ObservationLog, type AnomalyLog, type HealingAction } from '../designSystem';
+import { useNiramayData } from '../hooks/useNiramayData';
 import StatCard from '../components/StatCard';
 import ThemeToggle from '../components/Toggle';
 import ObservationFeed from '../components/ObservationFeed';
@@ -21,18 +22,23 @@ const API = import.meta.env.VITE_API_URL || '';
 
 export default function HealingDashboard() {
   const { isDark } = useTheme();
+  const { 
+    logs, 
+    anomalies, 
+    healingActions, 
+    stats, 
+    isLive, 
+    setIsLive, 
+    lastRefresh, 
+    loading, 
+    fetchData,
+    metrics 
+  } = useNiramayData();
 
-  const [logs, setLogs] = useState<ObservationLog[]>([]);
-  const [anomalyData, setAnomalyData] = useState<AnomalyData | null>(null);
-  const [healingActions, setHealingActions] = useState<HealingAction[]>([]);
-  const [isLive, setIsLive] = useState(true);
-  const [lastRefresh, setLastRefresh] = useState(new Date());
-  const timerRef = useRef<ReturnType<typeof setInterval>>();
   const [scrolled, setScrolled] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showBackToTop, setShowBackToTop] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
-  const [loading, setLoading] = useState(true);
 
   // Scroll tracking
   useEffect(() => {
@@ -60,33 +66,6 @@ export default function HealingDashboard() {
     window.addEventListener('scroll', fn, { passive: true });
     return () => window.removeEventListener('scroll', fn);
   }, []);
-
-  // Data fetching — sacred API contracts
-  const fetchData = useCallback(async () => {
-    try {
-      const [a, b, c] = await Promise.allSettled([
-        axios.get(`${API}/api/v1/observation/logs?limit=50`),
-        axios.get(`${API}/api/v1/detection/anomalies?limit=30`),
-        axios.get(`${API}/api/v1/healing/actions?limit=30`),
-      ]);
-      if (a.status === 'fulfilled') setLogs(a.value.data);
-      if (b.status === 'fulfilled') setAnomalyData(b.value.data);
-      if (c.status === 'fulfilled') setHealingActions(c.value.data);
-      setLastRefresh(new Date());
-      setLoading(false);
-    } catch { /* graceful fallback */ setLoading(false); }
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => {
-    if (isLive) timerRef.current = setInterval(fetchData, 3000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isLive, fetchData]);
-
-  const tot = logs.length;
-  const fail = logs.filter(l => l.status_code >= 400).length;
-  const avg = tot > 0 ? (logs.reduce((s, l) => s + l.response_time_ms, 0) / tot).toFixed(0) : '—';
-  const rate = tot > 0 ? ((1 - fail / tot) * 100).toFixed(1) : '—';
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -356,13 +335,13 @@ export default function HealingDashboard() {
             </>
           ) : (
             <>
-              <StatCard label="Requests" value={tot} />
-              <StatCard label="Success" value={`${rate}%`} hasAccent="success" />
-              <StatCard label="Latency" value={`${avg}ms`} />
-              <StatCard label="Anomalies" value={anomalyData?.total || 0}
-                hasAccent={anomalyData && anomalyData.total > 0 ? 'warning' : undefined} />
-              <StatCard label="Healed" value={healingActions.length}
-                hasAccent={healingActions.length > 0 ? 'success' : undefined} />
+              <StatCard label="Requests" value={metrics.totalRequests} />
+              <StatCard label="Health" value={`${metrics.successRate}%`} hasAccent="success" />
+              <StatCard label="Latency" value={metrics.avgLatency === '—' ? '—' : `${metrics.avgLatency}ms`} />
+              <StatCard label="Anomalies" value={metrics.activeAnomalies}
+                hasAccent={metrics.activeAnomalies > 0 ? 'warning' : undefined} />
+              <StatCard label="Healed" value={metrics.totalHealed}
+                hasAccent={metrics.totalHealed > 0 ? 'success' : undefined} />
             </>
           )}
         </section>
@@ -377,13 +356,13 @@ export default function HealingDashboard() {
             <ObservationFeed logs={logs} />
           </div>
           <div data-aos="fade-up" data-aos-delay="100">
-            <DetectionAlerts data={anomalyData} />
+            <DetectionAlerts anomalies={anomalies} stats={stats} />
           </div>
           <div data-aos="fade-up" data-aos-delay="200">
             <HealingActionsPanel actions={healingActions} />
           </div>
           <div data-aos="fade-up" data-aos-delay="300">
-            <AICopilot />
+            <AICopilot anomalies={anomalies} />
           </div>
         </div>
       </main>

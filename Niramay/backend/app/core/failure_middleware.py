@@ -25,6 +25,11 @@ class FailureSimulationMiddleware(BaseHTTPMiddleware):
         method = request.method
         client_ip = request.client.host if request.client else "unknown"
 
+        # Skip management and health paths to avoid breaking the dashboard itself
+        from app.observation.middleware import _EXCLUDED_PATHS
+        if endpoint in _EXCLUDED_PATHS:
+            return await call_next(request)
+
         scenario = failure_simulator.should_fail_request(
             endpoint=endpoint,
             method=method,

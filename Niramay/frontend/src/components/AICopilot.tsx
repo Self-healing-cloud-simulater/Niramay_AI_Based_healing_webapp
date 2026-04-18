@@ -6,18 +6,18 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { AI_RECOMMENDATIONS, useTheme, createRipple } from '../designSystem';
+import { useTheme, createRipple, type AnomalyLog } from '../designSystem';
 
-export default function AICopilot() {
+export default function AICopilot({ anomalies = [] }: { anomalies?: AnomalyLog[] }) {
   const { isDark } = useTheme();
   const [features, setFeatures] = useState({
-    predictive: false,
-    rootCause: false,
+    predictive: true,
+    rootCause: true,
     smartPriority: false,
   });
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'ai'; text: string }>>([
-    { role: 'ai', text: "I'm monitoring your infrastructure. Ask about system health, patterns, or recommendations." },
+    { role: 'ai', text: "Llama3 initialized. I'm monitoring your infrastructure for anomalies." },
   ]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -156,7 +156,7 @@ export default function AICopilot() {
           ))}
         </div>
 
-        {/* ── Recommendations ── */}
+        {/* ── Recommendations (AI RCA) ── */}
         <div style={{ marginBottom: 'var(--space-8)' }}>
           <div style={{
             fontSize: 'var(--text-xs)',
@@ -166,15 +166,15 @@ export default function AICopilot() {
             color: 'var(--color-text-tertiary)',
             marginBottom: 'var(--space-4)',
           }}>
-            Recommendations
+            AI RCA (Ollama)
           </div>
-          {AI_RECOMMENDATIONS.map(rec => (
+          {anomalies.filter(a => a.ai_analysis).slice(0, 5).map(a => (
             <motion.div
-              key={rec.id}
+              key={a.id}
               className="row-interactive"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: rec.id * 0.06 }}
+              transition={{ duration: 0.3 }}
               style={{
                 padding: 'var(--space-3) var(--space-2)',
                 marginBottom: 'var(--space-1)',
@@ -187,9 +187,12 @@ export default function AICopilot() {
                 gap: 'var(--space-2)',
                 marginBottom: 'var(--space-1)',
               }}>
-                <span className={`dot dot-${sevDot(rec.severity)}`} />
-                <span className={`badge ${sevBadge(rec.severity)}`}>
-                  {rec.severity}
+                <span className={`dot dot-${a.ai_analysis.confidence > 0.8 ? 'success' : 'warning'}`} />
+                <span className={`badge ${a.ai_analysis.confidence > 0.8 ? 'badge-success' : 'badge-warning'}`}>
+                  {Math.round(a.ai_analysis.confidence * 100)}% Conf
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                  {a.endpoint}
                 </span>
               </div>
 
@@ -199,7 +202,7 @@ export default function AICopilot() {
                 lineHeight: 'var(--leading-normal)',
                 paddingLeft: 'var(--space-4)',
               }}>
-                {rec.title}
+                {a.ai_analysis.root_cause}
               </div>
 
               {/* Progressive disclosure */}
@@ -210,7 +213,7 @@ export default function AICopilot() {
                   lineHeight: 'var(--leading-normal)',
                   marginBottom: 'var(--space-2)',
                 }}>
-                  {rec.desc}
+                  LLM Suggestion: Apply {a.ai_analysis.suggested_action} to mitigate further degradation.
                 </div>
                 <button
                   className="btn-ghost ripple-host"
@@ -220,11 +223,16 @@ export default function AICopilot() {
                     fontSize: 'var(--text-xs)',
                   }}
                 >
-                  {rec.action}
+                  Execute {a.ai_analysis.suggested_action}
                 </button>
               </div>
             </motion.div>
           ))}
+          {anomalies.filter(a => a.ai_analysis).length === 0 && (
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', paddingLeft: 'var(--space-4)' }}>
+              No critical RCA reports at this time.
+            </div>
+          )}
         </div>
 
         {/* ── Chat ── */}

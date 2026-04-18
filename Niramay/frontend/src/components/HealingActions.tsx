@@ -12,15 +12,14 @@ import { SkeletonRow } from './SkeletonBlock';
 function ActionIcon({ action }: { action: string }) {
   const s = 15;
   const stroke = 'var(--color-accent-primary)';
-  if (action === 'restart_service') return (
+  if (action === 'throttle_requests') return (
     <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={stroke} strokeWidth="1.3" strokeLinecap="round">
-      <path d="M1 8a7 7 0 0 1 13.2-3.2" /><path d="M15 8a7 7 0 0 1-13.2 3.2" />
-      <polyline points="1,3 1,8 5,7" /><polyline points="15,13 15,8 11,9" />
+      <rect x="2" y="2" width="12" height="12" rx="2" /><path d="M2 8h12M8 2v12" />
     </svg>
   );
-  if (action === 'retry_request') return (
+  if (action === 'fallback_response') return (
     <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={stroke} strokeWidth="1.3" strokeLinecap="round">
-      <polyline points="1,1 1,6 6,6" /><path d="M1 6 C3 3, 6 1, 8 1 a7 7 0 1 1-5 12" />
+      <path d="M1 8h14M1 8l4-4M1 8l4 4" />
     </svg>
   );
   return (
@@ -31,8 +30,10 @@ function ActionIcon({ action }: { action: string }) {
 }
 
 export default function HealingActionsPanel({ actions }: { actions: HealingAction[] }) {
-  const byType = actions.reduce<Record<string, number>>((acc, x) => {
-    acc[x.healing_action] = (acc[x.healing_action] || 0) + 1;
+  const byType = (actions || []).reduce<Record<string, number>>((acc, x) => {
+    if (x && x.action) {
+      acc[x.action] = (acc[x.action] || 0) + 1;
+    }
     return acc;
   }, {});
 
@@ -97,9 +98,10 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
           <EmptyState headline="No healing actions yet" />
         ) : (
           <AnimatePresence initial={false}>
-            {actions.map((a, i) => (
-              <motion.div
-                key={`${a.timestamp}-${i}`}
+            {(actions || []).map((a, i) => 
+              a ? (
+                <motion.div
+                  key={`${a.timestamp}-${i}`}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -128,7 +130,7 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                   flexShrink: 0,
                   marginTop: 2,
                 }}>
-                  <ActionIcon action={a.healing_action} />
+                  <ActionIcon action={a.action} />
                 </div>
 
                 {/* Content */}
@@ -145,10 +147,17 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                       color: 'var(--color-text-primary)',
                       textTransform: 'capitalize',
                     }}>
-                      {a.healing_action.replace(/_/g, ' ')}
+                      {a.action.replace(/_/g, ' ')}
                     </span>
 
-                    <span className={`dot dot-${a.status === 'success' ? 'success' : 'warning'}`} />
+                    <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+                      {a.verification_status !== 'PENDING' && (
+                        <span className={`badge badge-${a.verification_status === 'SUCCESS' ? 'success' : 'error'}`} style={{ fontSize: 9, padding: '1px 4px' }}>
+                          {a.verification_status}
+                        </span>
+                      )}
+                      <span className={`dot dot-${a.status === 'success' ? 'success' : 'warning'}`} />
+                    </div>
                   </div>
 
                   {/* Message — revealed on hover */}
@@ -172,7 +181,8 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                   </span>
                 </div>
               </motion.div>
-            ))}
+            ) : null
+          )}
           </AnimatePresence>
         )}
       </div>

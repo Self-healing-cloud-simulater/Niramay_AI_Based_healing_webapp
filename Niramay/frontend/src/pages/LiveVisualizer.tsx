@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Navbar from '../components/layout/Navbar';
 import { useNiramayData } from '../hooks/useNiramayData';
-import { useTheme, statusDotClass, timeAgo, createRipple, AI_RECOMMENDATIONS } from '../designSystem';
+import { useTheme, statusDotClass, timeAgo, createRipple } from '../designSystem';
 
 /* ═══════════════════════════════════════════════════════════════════
    METRICS BAR
@@ -244,9 +244,9 @@ function ObservationStream({ logs }: { logs: ReturnType<typeof useNiramayData>['
    STAGE 2: DETECTION ENGINE
    ═══════════════════════════════════════════════════════════════════ */
 
-function DetectionEngine({ anomalyData }: { anomalyData: ReturnType<typeof useNiramayData>['anomalyData'] }) {
+function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any }) {
   const { isDark } = useTheme();
-  const hasAnomalies = anomalyData && anomalyData.total > 0;
+  const hasAnomalies = anomalies.length > 0;
 
   return (
     <div className="glow-card" style={{
@@ -342,7 +342,7 @@ function DetectionEngine({ anomalyData }: { anomalyData: ReturnType<typeof useNi
         padding: 'var(--space-2) var(--space-3)',
         maxHeight: 260,
       }}>
-        {anomalyData?.anomalies.slice(0, 15).map((a, i) => (
+        {anomalies.slice(0, 15).map((a, i) => (
           <motion.div
             key={`${a.timestamp}-${i}`}
             initial={{ opacity: 0, y: 8 }}
@@ -782,7 +782,7 @@ function CopilotPanel() {
 export default function LiveVisualizer() {
   const data = useNiramayData();
   const { isDark } = useTheme();
-  const hasAnomalies = data.anomalyData !== null && data.anomalyData.total > 0;
+  const hasAnomalies = data.anomalies.length > 0;
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--page-gradient)' }}>
@@ -854,7 +854,7 @@ export default function LiveVisualizer() {
         >
           <ObservationStream logs={data.logs} />
           <DataStreamConnector hasAnomalies={hasAnomalies} />
-          <DetectionEngine anomalyData={data.anomalyData} />
+          <DetectionEngine anomalies={data.anomalies} stats={data.stats} />
           <DataStreamConnector hasAnomalies={hasAnomalies} />
           <HealingOutput actions={data.healingActions} />
         </motion.div>

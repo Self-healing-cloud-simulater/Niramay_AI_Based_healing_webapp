@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_PASSWORD: Optional[str] = None
+    DATABASE_URL: str = "postgresql://user:password@localhost/niramay"
+
 
     @property
     def REDIS_URL(self) -> str:
@@ -38,11 +40,32 @@ class Settings(BaseSettings):
 
     # Detection Layer Thresholds
     DETECTION_LATENCY_THRESHOLD_MS: float = 300.0
-    DETECTION_ANOMALY_SCORE_THRESHOLD: int = 3
+
+    # Rate Rule Settings
+    DETECTION_RATE_WINDOW_SECONDS: float = 60.0   # Sliding window size (seconds)
+    DETECTION_RATE_THRESHOLD: int = 50             # Max requests per endpoint per window
+
+    # Silence Rule Settings
+    DETECTION_SILENCE_THRESHOLD_SECONDS: float = 30.0  # Silence gap to trigger (seconds)
+
+    # Weights for different anomaly indicators (must sum to 1.0)
+    DETECTION_WEIGHT_LATENCY: float = 0.25
+    DETECTION_WEIGHT_STATUS: float = 0.25
+    DETECTION_WEIGHT_FAILURE: float = 0.20
+    DETECTION_WEIGHT_RATE: float = 0.15
+    DETECTION_WEIGHT_SILENCE: float = 0.15
+
+    # Normalized Anomaly Threshold (0.0 to 1.0)
+    DETECTION_ANOMALY_THRESHOLD: float = 0.4
 
     # Traffic Generator
     TRAFFIC_GENERATOR_ENABLED: bool = True
     TRAFFIC_GENERATOR_INTERVAL_MS: int = 2000  # Generate a request every 2 seconds
+
+    # Ollama / LLM Settings
+    OLLAMA_URL: str = "http://localhost:11434/api/generate"
+    OLLAMA_MODEL: str = "llama3"
+    ENABLE_AI_CAUSAL: bool = True
 
     class Config:
         env_file = ".env"
