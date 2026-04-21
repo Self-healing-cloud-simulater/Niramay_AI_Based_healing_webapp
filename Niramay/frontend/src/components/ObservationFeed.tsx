@@ -19,7 +19,7 @@ export default function ObservationFeed({ logs }: { logs: ObservationLog[] }) {
   const chartRef = useRef<Chart | null>(null);
 
   const sparkData = useMemo(
-    () => logs.slice(0, 20).reverse().map(l => l.response_time),
+    () => logs.slice(0, 20).reverse().map(l => l.response_time_ms),
     [logs]
   );
 
@@ -208,7 +208,7 @@ export default function ObservationFeed({ logs }: { logs: ObservationLog[] }) {
                   textAlign: 'right',
                   fontVariantNumeric: 'tabular-nums',
                 }}>
-                  {log.response_time.toFixed(0)}ms
+                  {(log.response_time_ms ?? 0).toFixed(0)}ms
                 </span>
 
                 <span className="reveal-on-hover" style={{

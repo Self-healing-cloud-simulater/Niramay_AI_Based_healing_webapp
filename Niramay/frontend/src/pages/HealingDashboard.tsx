@@ -337,7 +337,7 @@ export default function HealingDashboard() {
             <>
               <StatCard label="Requests" value={metrics.totalRequests} />
               <StatCard label="Health" value={`${metrics.successRate}%`} hasAccent="success" />
-              <StatCard label="Latency" value={metrics.avgLatency === '—' ? '—' : `${metrics.avgLatency}ms`} />
+              <StatCard label="Latency" value={metrics.avgLatency} />
               <StatCard label="Anomalies" value={metrics.activeAnomalies}
                 hasAccent={metrics.activeAnomalies > 0 ? 'warning' : undefined} />
               <StatCard label="Healed" value={metrics.totalHealed}

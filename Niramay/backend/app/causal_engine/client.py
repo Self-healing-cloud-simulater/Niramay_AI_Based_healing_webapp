@@ -57,7 +57,7 @@ class CausalEngine:
             return self._rule_based_fallback(log)
 
     def _build_prompt(self, log: Dict[str, Any]) -> str:
-        """Constructs the prompt for the LLM"""
+        """Constructs the prompt for the LLM with enriched Stage 2 context"""
         return f"""
         You are an expert SRE and system architect. Analyze the following anomaly detected in a backend service and provide a root cause analysis in JSON format.
         
@@ -65,15 +65,18 @@ class CausalEngine:
         - Service: {log.get('service')}
         - Endpoint: {log.get('endpoint')}
         - Status Code: {log.get('status_code')}
-        - Response Time: {log.get('response_time')}ms
-        - Failure Type: {log.get('failure_type')}
+        - Response Time: {log.get('response_time_ms', log.get('response_time'))}ms
+        - Failure Tag: {log.get('failure_tag', log.get('failure_type'))}
         - Anomaly Reasons: {log.get('anomaly_reasons')}
+        - Engines Triggered: {log.get('engines_triggered', [])}
+        - Anomaly Score: {log.get('anomaly_score', 'N/A')}
+        - Severity: {log.get('severity', 'N/A')}
         - Metadata: {log.get('metadata')}
         
         INSTRUCTIONS:
-        1. Identify the most likely root cause.
+        1. Identify the most likely root cause considering all triggered detection engines.
         2. Assign a confidence score between 0.0 and 1.0.
-        3. Suggest a technical healing action (e.g., restart_service, flush_cache, scale_up, etc.).
+        3. Suggest a technical healing action (e.g., restart_service, flush_cache, scale_up, throttle_requests, circuit_breaker, etc.).
         4. Return ONLY a valid JSON object with the keys: "root_cause", "confidence", "suggested_action".
         
         Example Output:

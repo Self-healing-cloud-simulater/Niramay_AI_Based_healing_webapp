@@ -1,6 +1,6 @@
 """
 Application Configuration Settings
-Simplified for standalone Niramay (Redis-only, no PostgreSQL)
+Standalone Niramay — Redis + RabbitMQ + OpenSearch (no SQLite/PostgreSQL)
 """
 from typing import List, Optional
 from pydantic_settings import BaseSettings
@@ -23,7 +23,21 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_PASSWORD: Optional[str] = None
-    DATABASE_URL: str = "postgresql://user:password@localhost/niramay"
+
+
+    # RabbitMQ (Stage 1 — log ingestion from Component C)
+    RABBITMQ_HOST: str = "localhost"
+    RABBITMQ_PORT: int = 5672
+    RABBITMQ_USER: str = "guest"
+    RABBITMQ_PASSWORD: str = "guest"
+    RABBITMQ_QUEUE: str = "component-c-logs"
+    RABBITMQ_QUEUE_NAME: str = "component-c-logs"  # alias used by publisher/consumer
+
+    # OpenSearch (permanent storage)
+    OPENSEARCH_HOST: str = "localhost"
+    OPENSEARCH_PORT: int = 9200
+    OPENSEARCH_USER: str = "admin"
+    OPENSEARCH_PASSWORD: str = "admin"
 
 
     @property
@@ -45,8 +59,23 @@ class Settings(BaseSettings):
     DETECTION_RATE_WINDOW_SECONDS: float = 60.0   # Sliding window size (seconds)
     DETECTION_RATE_THRESHOLD: int = 50             # Max requests per endpoint per window
 
-    # Silence Rule Settings
+    # Silence Rule Settings (in-memory, existing)
     DETECTION_SILENCE_THRESHOLD_SECONDS: float = 30.0  # Silence gap to trigger (seconds)
+
+    # Stage 2 — Rate-Based Engine (Redis-backed)
+    RATE_BASED_ERROR_THRESHOLD: int = 5      # Errors in window before firing
+    RATE_BASED_WINDOW_SECONDS: int = 60      # Rolling window size
+
+    # Stage 2 — Silence Detection Engine (Redis-backed)
+    SILENCE_THRESHOLD_SECONDS: int = 120     # Silence gap before firing
+    SILENCE_CHECK_INTERVAL_SECONDS: int = 30 # Background check frequency
+
+    # Stage 2 — Integer-based anomaly score threshold (for DetectionService)
+    DETECTION_ANOMALY_SCORE_THRESHOLD: int = 3
+
+    # Stage 2 — Baseline Anomaly Engine (Redis-backed)
+    BASELINE_DEVIATION_FACTOR: float = 2.0   # Fire when RT > factor * baseline avg
+    BASELINE_MIN_SAMPLES: int = 20           # Min samples before baseline is valid
 
     # Weights for different anomaly indicators (must sum to 1.0)
     DETECTION_WEIGHT_LATENCY: float = 0.25
@@ -64,7 +93,7 @@ class Settings(BaseSettings):
 
     # Ollama / LLM Settings
     OLLAMA_URL: str = "http://localhost:11434/api/generate"
-    OLLAMA_MODEL: str = "llama3"
+    OLLAMA_MODEL: str = "llama3.2"
     ENABLE_AI_CAUSAL: bool = True
 
     class Config:

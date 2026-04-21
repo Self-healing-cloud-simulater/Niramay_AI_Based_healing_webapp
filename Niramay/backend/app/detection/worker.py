@@ -1,127 +1,190 @@
+"""
+Detection Worker — Async Pipeline Loop
+
+Consumes normalized logs from Redis observation:pending_detection,
+runs the detection service, and handles all storage dispatch:
+
+    If anomaly:
+        → Redis: observation:anomalies (capped 1000)
+        → Redis: anomaly_stats:type + anomaly_stats:endpoint
+        → OpenSearch: b-anomaly-records
+        → Causal Engine (if requires_llm)
+        → Healing Engine → Redis: healing:actions + OpenSearch: b-healing-records
+
+    If healthy:
+        → OpenSearch: b-healthy-logs (lightweight record)
+
+No SQLite. No dead Redis keys.
+"""
 import asyncio
 import json
 import structlog
-from app.detection.engine import detection_engine
+from app.core.redis_client import get_async_redis
+from app.detection.index import detection_service
 from app.healing.index import healing_service
-from app.causal_engine.client import causal_engine
-from app.observation.store import observation_store, REDIS_ANOMALIES_KEY, REDIS_STATS_PREFIX, REDIS_HEALING_KEY
-from app.db.session import SessionLocal
-from app.db.models import AuditLog, AnomalyRecord, HealingActionRecord
+from app.ingestion.opensearch_client import opensearch_writer
 
 logger = structlog.get_logger(__name__)
 
-# Key for the pending detection queue
-DETECTION_QUEUE_KEY = "observation:pending_detection"
+# Redis Key Ownership for this worker:
+# WRITES:
+#   observation:anomalies  - anomaly feed for API
+#   healing:actions        - healing results for API
+#   anomaly_stats:type     - stats hash for API
+#   anomaly_stats:endpoint - stats hash for API
+#   escalation:alerts      - escalation feed for API
+#
+# DOES NOT WRITE (written by RabbitMQ consumer):
+#   observation:logs       - raw log feed for API
+#   observation:pending_detection - detection queue
+#
+# This separation is intentional. The consumer owns
+# log ingestion. The worker owns detection results.
+
+# Redis key names
+PENDING_DETECTION_KEY = "observation:pending_detection"
+ANOMALIES_KEY = "observation:anomalies"
+HEALING_KEY = "healing:actions"
+STATS_TYPE_KEY = "anomaly_stats:type"
+STATS_ENDPOINT_KEY = "anomaly_stats:endpoint"
+LIST_CAP = 1000
+
 
 async def detection_worker_loop():
     """
-    Background loop that pops logs from Redis and processes them
-    through the Detection → Healing pipeline.
+    Main async loop — pops logs from Redis, runs detection,
+    dispatches results to Redis + OpenSearch.
     """
-    logger.info("Starting Detection Worker Loop...")
+    logger.info("Detection Worker started")
+    r = await get_async_redis()
 
     while True:
         try:
-            r = await observation_store.get_redis()
-            if not r:
-                await asyncio.sleep(5)
+            # Blocking pop from the detection queue (5s timeout)
+            result = await r.brpop(PENDING_DETECTION_KEY, timeout=5)
+            if result is None:
                 continue
 
-            # Pop a log from the queue (blocking with 5s timeout)
-            result = await r.brpop(DETECTION_QUEUE_KEY, timeout=5)
-
-            if not result:
+            _, raw = result
+            try:
+                log = json.loads(raw)
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("Detection worker: unparseable message", raw=str(raw)[:200])
                 continue
 
-            _, log_json = result
-            log = json.loads(log_json)
+            # ── Run Detection (pure function — no side effects) ──
+            detection_result = detection_service.detect_anomaly(log)
 
-            # 1. Run Detection
-            detection_result = detection_engine.analyze_log(log)
+            if detection_result["is_anomaly"]:
+                await _handle_anomaly(r, detection_result)
+            else:
+                _handle_healthy(detection_result)
 
-            # 2. Enrich Log
-            log.update(detection_result)
-            enriched_json = json.dumps(log)
-
-            # 3. Handle Healing & Store results in Redis and SQL
-            with SessionLocal() as db:
-                # Find the existing AuditLog by request_id
-                db_log = db.query(AuditLog).filter(AuditLog.request_id == log.get("request_id")).first()
-                
-                if detection_result["is_anomaly"]:
-                    # --- CAUSAL ENGINE (AI Analysis) ---
-                    # Only escalate to the LLM if the detection engine flagged it
-                    ai_analysis = {}
-                    if detection_result.get("requires_llm_analysis", False):
-                        ai_analysis = await causal_engine.analyze(log)
-                        log["ai_analysis"] = ai_analysis
-                    else:
-                        log["ai_analysis"] = {"skipped": True, "reason": "Below LLM escalation threshold"}
-
-                    # --- HEALING LAYER ---
-                    # Use AI suggested action if available and confident, otherwise fallback to rules
-                    suggested_action = ai_analysis.get("suggested_action")
-                    if suggested_action and suggested_action != "none" and ai_analysis.get("confidence", 0) > 0.8:
-                        action = suggested_action
-                    else:
-                        action = healing_service.decide_healing_action(log)
-                    
-                    healing_result = await healing_service.execute_healing(action, log)
-                    log["healing"] = healing_result
-                    
-                    enriched_json = json.dumps(log)
-                    healing_json = json.dumps(healing_result)
-
-                    # --- REDIS STORAGE ---
-                    async with r.pipeline(transaction=True) as pipe:
-                        # Append to anomalies list
-                        await pipe.lpush(REDIS_ANOMALIES_KEY, enriched_json)
-                        await pipe.ltrim(REDIS_ANOMALIES_KEY, 0, 999)
-
-                        # Store Healing Audit Record
-                        if action != "none":
-                            await pipe.lpush(REDIS_HEALING_KEY, healing_json)
-                            await pipe.ltrim(REDIS_HEALING_KEY, 0, 999)
-                            # Emit real-time event for UI
-                            await pipe.publish("niramay:healing_events", healing_json)
-
-                        # Update Stats
-                        endpoint = log.get("endpoint", "unknown")
-                        await pipe.hincrby(f"{REDIS_STATS_PREFIX}:endpoint", endpoint, 1)
-
-                        for reason in detection_result["anomaly_reasons"]:
-                            await pipe.hincrby(f"{REDIS_STATS_PREFIX}:type", reason, 1)
-
-                        await pipe.execute()
-
-                    # --- SQL STORAGE (Persistent) ---
-                    if db_log:
-                        db_anomaly = AnomalyRecord(
-                            log_id=db_log.id,
-                            is_anomaly=True,
-                            anomaly_score=detection_result["anomaly_score"],
-                            reasons=detection_result["anomaly_reasons"],
-                            ai_analysis=ai_analysis
-                        )
-                        db.add(db_anomaly)
-                        db.commit()
-                        db.refresh(db_anomaly)
-
-                        if action != "none":
-                            db_healing = HealingActionRecord(
-                                anomaly_id=db_anomaly.id,
-                                action=action,
-                                status=healing_result.get("status"),
-                                message=healing_result.get("message"),
-                                verification_status=healing_result.get("verification_status", "PENDING")
-                            )
-                            db.add(db_healing)
-                            db.commit()
-
+        except asyncio.CancelledError:
+            logger.info("Detection worker cancelled")
+            break
         except Exception as e:
-            logger.error("Error in detection worker loop", error=str(e))
+            logger.error("Detection worker error", error=str(e))
             await asyncio.sleep(2)
 
+
+async def _handle_anomaly(r, detection_result: dict):
+    """
+    Handle a detected anomaly:
+        1. Push to Redis anomalies list
+        2. Update Redis stats
+        3. Write to OpenSearch
+        4. Run causal engine (if needed)
+        5. Run healing engine
+        6. Store healing result
+    """
+    # ── 1. Run Causal Engine if needed ──
+    ai_analysis = None
+    if detection_result.get("requires_llm"):
+        try:
+            from app.causal_engine.client import analyze_anomaly
+            ai_analysis = await analyze_anomaly(detection_result)
+            detection_result["ai_analysis"] = ai_analysis
+        except Exception as e:
+            logger.warning("Causal engine failed", error=str(e))
+            detection_result["ai_analysis"] = {
+                "root_cause": "Analysis unavailable",
+                "confidence": 0.0,
+                "suggested_action": "none",
+                "skipped": True,
+                "reason": str(e),
+            }
+
+    # ── 2. Run Healing Engine ──
+    healing_result = None
+    try:
+        action_key = healing_service.decide_healing_action(detection_result)
+        healing_result = await healing_service.execute_healing(action_key, detection_result)
+        detection_result["healing"] = healing_result
+    except Exception as e:
+        logger.error("Healing engine failed", error=str(e))
+
+    # ── 3. Push to Redis: observation:anomalies ──
+    try:
+        anomaly_json = json.dumps(detection_result)
+        await r.lpush(ANOMALIES_KEY, anomaly_json)
+        await r.ltrim(ANOMALIES_KEY, 0, LIST_CAP - 1)
+    except Exception as e:
+        logger.warning("Failed to push anomaly to Redis", error=str(e))
+
+    # ── 4. Update Redis stats ──
+    try:
+        reasons = detection_result.get("anomaly_reasons", [])
+        if reasons:
+            await r.hincrby(STATS_TYPE_KEY, reasons[0], 1)
+        endpoint = detection_result.get("endpoint", "unknown")
+        await r.hincrby(STATS_ENDPOINT_KEY, endpoint, 1)
+    except Exception as e:
+        logger.warning("Failed to update Redis stats", error=str(e))
+
+    # ── 5. Write to OpenSearch: b-anomaly-records ──
+    try:
+        opensearch_writer.write_anomaly_record(detection_result)
+    except Exception as e:
+        logger.warning("Failed to write anomaly to OpenSearch", error=str(e))
+
+    # ── 6. Write healing result to Redis + OpenSearch ──
+    if healing_result and healing_result.get("status") != "skipped":
+        try:
+            healing_json = json.dumps(healing_result)
+            await r.lpush(HEALING_KEY, healing_json)
+            await r.ltrim(HEALING_KEY, 0, LIST_CAP - 1)
+        except Exception as e:
+            logger.warning("Failed to push healing to Redis", error=str(e))
+
+        try:
+            healing_record = {
+                **healing_result,
+                "service": detection_result.get("service"),
+                "endpoint": detection_result.get("endpoint"),
+                "detection_id": detection_result.get("detection_id"),
+            }
+            opensearch_writer.write_healing_record(healing_record)
+        except Exception as e:
+            logger.warning("Failed to write healing to OpenSearch", error=str(e))
+
+
+def _handle_healthy(detection_result: dict):
+    """Write lightweight healthy record to OpenSearch only."""
+    try:
+        healthy_record = {
+            "timestamp": detection_result.get("timestamp"),
+            "service": detection_result.get("service"),
+            "endpoint": detection_result.get("endpoint"),
+            "status_code": detection_result.get("status_code"),
+            "response_time_ms": detection_result.get("response_time_ms"),
+        }
+        opensearch_writer.write_healthy_log(healthy_record)
+    except Exception as e:
+        logger.warning("Failed to write healthy log to OpenSearch", error=str(e))
+
+
 def start_detection_worker():
-    """Start the detection worker in the background"""
+    """Start the detection worker as a background async task."""
     asyncio.create_task(detection_worker_loop())
+    logger.info("Detection worker task created")
