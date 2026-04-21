@@ -130,6 +130,30 @@ async def startup_event():
     except Exception as e:
         logger.error("Failed to initialize SQL Database", error=str(e))
 
+    # ── Stage 1: Initialize OpenSearch indices ──
+    try:
+        from app.ingestion.opensearch_client import opensearch_writer
+        opensearch_writer.ensure_indices()
+        logger.info("OpenSearch indices initialized")
+    except Exception as e:
+        logger.warning("OpenSearch initialization failed (non-fatal)", error=str(e))
+
+    # ── Stage 1: Start RabbitMQ consumer (ingests logs from Component C) ──
+    try:
+        from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer
+        start_rabbitmq_consumer()
+        logger.info("RabbitMQ consumer started")
+    except Exception as e:
+        logger.warning("RabbitMQ consumer start failed (non-fatal)", error=str(e))
+
+    # ── Stage 2: Start silence detection background checker ──
+    try:
+        from app.detection.engines.silence_detection_engine import start_silence_checker
+        start_silence_checker()
+        logger.info("Silence detection checker started")
+    except Exception as e:
+        logger.warning("Silence checker start failed (non-fatal)", error=str(e))
+
     # Start the Detection Worker (Observation → Detection → Healing pipeline)
     from app.detection.worker import start_detection_worker
     start_detection_worker()
