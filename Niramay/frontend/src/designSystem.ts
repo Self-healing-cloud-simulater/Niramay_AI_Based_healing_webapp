@@ -85,59 +85,72 @@ export function useTheme() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   DATA TYPES — SACRED (unchanged from v1)
+   DATA TYPES — Aligned with Redis flat JSON structures
    ═══════════════════════════════════════════════════════════════════ */
 
 export interface ObservationLog {
-  id: number;
   timestamp: string;
   service: string;
   endpoint: string;
   method: string;
   status_code: number;
-  response_time: number;
-  failure_type: string;
-  request_id: string;
-  metadata_json?: any;
+  response_time_ms: number;
+  failure_tag: string;
+  request_id?: string;
 }
 
 export interface AnomalyLog {
-  id: number;
-  log_id: number;
+  detection_id: string;
   timestamp: string;
-  is_anomaly: boolean;
+  service: string;
+  endpoint: string;
+  method: string;
+  status_code: number;
+  response_time_ms: number;
+  failure_tag: string;
   anomaly_score: number;
   anomaly_reasons: string[];
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  requires_llm_analysis: boolean;
+  engines_triggered: string[];
+  severity: 'low' | 'medium' | 'high';
+  is_anomaly: boolean;
+  requires_llm: boolean;
   ai_analysis?: {
     root_cause: string;
     confidence: number;
     suggested_action: string;
-    analysis_type: string;
+    analysis_type?: string;
     skipped?: boolean;
     reason?: string;
   };
-  log?: ObservationLog;
+  healing?: HealingAction;
 }
 
 export interface SystemStats {
   total_logs: number;
   total_anomalies: number;
   health_score: number;
-  window_health_score: number;
   by_endpoint: Record<string, number>;
   by_type: Record<string, number>;
 }
 
 export interface HealingAction {
-  id: number;
-  action: string;
+  healing_action: string;
   status: string;
   timestamp: string;
   message: string;
   verification_status: string;
-  verification_timestamp?: string;
+}
+
+export interface EscalationAlert {
+  type: string;
+  service: string;
+  endpoint: string;
+  failure_type: string;
+  attempts: number;
+  healing_actions_tried: string[];
+  outcomes: string[];
+  timestamp: string;
+  message: string;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

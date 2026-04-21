@@ -1,118 +1,211 @@
+"""
+Healing Verification Worker
+
+Background async loop that verifies whether healing actions
+actually resolved the anomaly by querying OpenSearch for
+subsequent traffic logs.
+
+Flow:
+    1. Read pending healing actions from Redis healing:actions
+    2. Wait for settling window
+    3. Query OpenSearch for subsequent logs
+    4. If anomaly signals persist → retry healing (up to 3 times)
+    5. After 3 failures → generate escalation alert
+"""
 import asyncio
-import structlog
-from datetime import datetime, timedelta, timezone
-from sqlalchemy.orm import Session
-from app.db.session import SessionLocal
-from app.db.models import HealingActionRecord, AuditLog, AnomalyRecord
-from app.healing.index import healing_service
-from app.observation.store import observation_store
 import json
+import structlog
+from datetime import datetime, timezone, timedelta
+from app.core.redis_client import get_async_redis
+from app.ingestion.opensearch_client import opensearch_writer
+from app.healing.index import healing_service
 
 logger = structlog.get_logger(__name__)
 
+# Redis keys
+HEALING_KEY = "healing:actions"
+ESCALATION_KEY = "escalation:alerts"
+
+# Settling windows per action type (seconds)
+SETTLING_WINDOWS = {
+    "restart_service": 45,
+    "throttle_requests": 15,
+    "retry_request": 5,
+    "fallback_response": 2,
+}
+
+MAX_RETRY_ATTEMPTS = 3
+
+
 async def verification_worker_loop():
     """
-    Background worker that verifies the success of PENDING healing actions.
-    Checks subsequent traffic logs for the same service/endpoint.
+    Background worker that verifies pending healing actions.
+    Checks subsequent traffic via OpenSearch to determine if
+    anomaly signals have subsided.
     """
-    logger.info("Starting Healing Verification Worker...")
-    
+    logger.info("Healing Verification Worker started")
+    r = await get_async_redis()
+
+    # Track verification state in-memory
+    # Key: detection_id, Value: {attempts, last_action, settled_at, ...}
+    pending_verifications: dict = {}
+
     while True:
         try:
-            with SessionLocal() as db:
-                # 1. Fetch all PENDING actions
-                pending_actions = db.query(HealingActionRecord).filter(
-                    HealingActionRecord.verification_status == "PENDING"
-                ).all()
+            # Read current healing actions from Redis
+            raw_actions = await r.lrange(HEALING_KEY, 0, 99)
 
-                for action in pending_actions:
-                    # 2. Apply Dynamic Settling Windows
-                    # Different actions require different amounts of time to stabilize
-                    windows = {
-                        "restart_service": 45,
-                        "throttle_requests": 15,
-                        "retry_request": 5,
-                        "fallback_response": 2
+            for raw in raw_actions:
+                try:
+                    action = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+                detection_id = action.get("detection_id")
+                if not detection_id:
+                    continue
+
+                # Skip already verified or non-pending
+                v_status = action.get("verification_status", "PENDING")
+                if v_status != "PENDING":
+                    continue
+
+                # Check if we're already tracking this
+                if detection_id in pending_verifications:
+                    pv = pending_verifications[detection_id]
+                else:
+                    pv = {
+                        "attempts": 0,
+                        "healing_actions_tried": [],
+                        "outcomes": [],
+                        "service": action.get("service", "unknown"),
+                        "endpoint": action.get("endpoint", "unknown"),
+                        "failure_tag": action.get("failure_tag", "none"),
+                        "timestamp": action.get("timestamp", ""),
+                        "last_action": action.get("healing_action", "unknown"),
                     }
-                    wait_seconds = windows.get(action.action, 30)
-                    
-                    if action.timestamp <= datetime.now() - timedelta(seconds=wait_seconds):
-                        await verify_healing_action(action, db)
-            
-            # Run every 15 seconds
+                    pending_verifications[detection_id] = pv
+
+                # Check settling window
+                healing_action = action.get("healing_action", "unknown")
+                wait_seconds = SETTLING_WINDOWS.get(healing_action, 30)
+
+                try:
+                    action_time = datetime.fromisoformat(
+                        action.get("timestamp", "").replace("Z", "+00:00")
+                    )
+                    elapsed = (datetime.now(timezone.utc) - action_time).total_seconds()
+                except (ValueError, TypeError):
+                    elapsed = 0
+
+                if elapsed < wait_seconds:
+                    continue  # Not enough time has passed
+
+                # ── Query OpenSearch for subsequent logs ──
+                service = pv["service"]
+                endpoint = pv["endpoint"]
+                timestamp = pv["timestamp"]
+
+                subsequent_logs = opensearch_writer.get_logs_after_timestamp(
+                    service=service,
+                    endpoint=endpoint,
+                    timestamp=timestamp,
+                )
+
+                if not subsequent_logs:
+                    # No traffic yet — check if expired (10 min)
+                    if elapsed > 600:
+                        pv["outcomes"].append("EXPIRED")
+                        logger.warning(
+                            "Healing verification expired (no traffic)",
+                            detection_id=detection_id,
+                        )
+                        del pending_verifications[detection_id]
+                    continue
+
+                # Analyze subsequent logs for anomaly signals
+                anomaly_count = 0
+                for slog in subsequent_logs:
+                    status = slog.get("status_code", 200)
+                    failure = slog.get("failure_tag", "none")
+                    if status >= 500 or (failure and failure != "none"):
+                        anomaly_count += 1
+
+                failure_rate = anomaly_count / len(subsequent_logs) if subsequent_logs else 0
+
+                if failure_rate <= 0.3:
+                    # ✅ Healing verified — anomaly resolved
+                    pv["outcomes"].append("SUCCESS")
+                    logger.info(
+                        "Healing verified: SUCCESS",
+                        detection_id=detection_id,
+                        failure_rate=f"{failure_rate:.1%}",
+                    )
+                    del pending_verifications[detection_id]
+                else:
+                    # ❌ Anomaly persists
+                    pv["attempts"] += 1
+                    pv["healing_actions_tried"].append(healing_action)
+                    pv["outcomes"].append("FAILURE")
+
+                    if pv["attempts"] >= MAX_RETRY_ATTEMPTS:
+                        # Generate escalation alert
+                        await _escalate(r, pv, detection_id)
+                        del pending_verifications[detection_id]
+                    else:
+                        # Retry with escalated healing
+                        logger.warning(
+                            "Healing failed, retrying",
+                            detection_id=detection_id,
+                            attempt=pv["attempts"],
+                        )
+                        # The next detection cycle will pick this up naturally
+
             await asyncio.sleep(15)
-            
+
+        except asyncio.CancelledError:
+            logger.info("Verification worker cancelled")
+            break
         except Exception as e:
-            logger.error("Error in verification worker loop", error=str(e))
+            logger.error("Verification worker error", error=str(e))
             await asyncio.sleep(5)
 
-async def verify_healing_action(action: HealingActionRecord, db: Session):
-    """
-    Looks at logs for the service/endpoint after the healing action took place.
-    If multiple new logs show high anomaly scores, mark as FAILURE.
-    If majority of new logs are healthy, mark as SUCCESS.
-    """
+
+async def _escalate(r, pv: dict, detection_id: str):
+    """Generate and store an escalation alert after max retries."""
+    escalation = {
+        "type": "escalation",
+        "service": pv["service"],
+        "endpoint": pv["endpoint"],
+        "failure_type": pv["failure_tag"],
+        "attempts": pv["attempts"],
+        "healing_actions_tried": pv["healing_actions_tried"],
+        "outcomes": pv["outcomes"],
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "message": (
+            f"Healing failed after {pv['attempts']} attempts for "
+            f"{pv['service']}:{pv['endpoint']}. "
+            f"Actions tried: {', '.join(pv['healing_actions_tried'])}. "
+            f"Manual intervention required."
+        ),
+    }
+
     try:
-        anomaly = action.anomaly
-        log = anomaly.log
-        
-        # 1. Find logs for this endpoint after the healing action
-        subsequent_logs = db.query(AuditLog).join(AnomalyRecord).filter(
-            AuditLog.endpoint == log.endpoint,
-            AuditLog.timestamp > action.timestamp
-        ).order_by(AuditLog.timestamp.asc()).limit(10).all()
-
-        if not subsequent_logs:
-            # Check if action is too old to verify (e.g., no traffic for 10 mins)
-            if action.timestamp < datetime.now() - timedelta(minutes=10):
-                action.verification_status = "EXPIRED"
-                db.commit()
-                logger.warning("Healing verification expired (no traffic)", action_id=action.id)
-            return
-
-        # 2. Analyze anomaly density in subsequent traffic
-        anomaly_count = 0
-        for s_log in subsequent_logs:
-            if s_log.anomaly and s_log.anomaly.anomaly_score > 0.5:
-                anomaly_count += 1
-        
-        # 3. Decision Logic
-        # If more than 30% of subsequent logs are still anomalies, healing failed.
-        failure_rate = anomaly_count / len(subsequent_logs)
-        
-        if failure_rate > 0.3:
-            action.verification_status = "FAILURE"
-            action.message += " | Verification: Anomalies persist in subsequent traffic."
-        else:
-            action.verification_status = "SUCCESS"
-            action.message += " | Verification: System performance stabilized."
-
-        action.verification_timestamp = datetime.now()
-        db.commit()
-        
-        # 4. Emit Real-time Update to UI
-        try:
-            r = await observation_store.get_redis()
-            if r:
-                update_payload = {
-                    "id": action.id,
-                    "action": action.action,
-                    "status": action.verification_status,
-                    "timestamp": action.verification_timestamp.isoformat(),
-                    "message": action.message
-                }
-                await r.publish("niramay:healing_updates", json.dumps(update_payload))
-        except Exception as e:
-            logger.error("Failed to publish verification update", error=str(e))
-        
-        logger.info("Healing action verified", 
-                    action=action.action, 
-                    status=action.verification_status, 
-                    failure_rate=f"{failure_rate:.1%}")
-
+        await r.lpush(ESCALATION_KEY, json.dumps(escalation))
+        await r.ltrim(ESCALATION_KEY, 0, 99)
     except Exception as e:
-        logger.error("Failed to verify healing action", action_id=action.id, error=str(e))
+        logger.error("Failed to push escalation alert", error=str(e))
+
+    logger.warning(
+        "ESCALATION: Healing exhausted all retries",
+        detection_id=detection_id,
+        service=pv["service"],
+        endpoint=pv["endpoint"],
+        attempts=pv["attempts"],
+    )
+
 
 def start_verification_worker():
-    """Start the verification worker in the background"""
+    """Start the verification worker in the background."""
     asyncio.create_task(verification_worker_loop())
+    logger.info("Verification worker task created")

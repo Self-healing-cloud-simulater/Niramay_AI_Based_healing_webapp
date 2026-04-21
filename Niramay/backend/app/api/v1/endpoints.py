@@ -1,168 +1,173 @@
 """
 Consolidated API Routes for the Healing Layer
-Includes: Observation, Detection, Healing, and Failure Simulator endpoints.
-All endpoints are public (no auth required in the standalone app).
+
+All data endpoints read from Redis (real-time) or OpenSearch (history).
+No SQLite dependencies.
+
+Includes: Observation, Detection, Healing, Escalation,
+History, and Failure Simulator endpoints.
 """
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
 import json
-from app.observation.store import (
-    observation_store,
-    REDIS_ANOMALIES_KEY,
-    REDIS_STATS_PREFIX,
-    REDIS_HEALING_KEY,
-)
-from app.observation.schemas import ObservationLog
-from app.api.v1.schemas import AuditLogResponse, AnomalyResponse, HealingActionResponse, SystemStatsResponse
-from app.core.failure_config import failure_simulator
-from app.db.session import get_db
-from app.db.models import AuditLog, AnomalyRecord, HealingActionRecord
-from sqlalchemy.orm import Session
-from fastapi import Depends
+from app.core.redis_client import redis_client
+from app.ingestion.opensearch_client import opensearch_writer
+from app.simulation.failure_config import failure_simulator
+from app.ingestion.rabbitmq_publisher import rabbitmq_publisher
 
 router = APIRouter()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# OBSERVATION LAYER — Phase 1
+# OBSERVATION LAYER — Real-time + History
 # ──────────────────────────────────────────────────────────────────────────────
 
-@router.get("/observation/logs", response_model=List[AuditLogResponse], tags=["Observation"])
+@router.get("/observation/logs", tags=["Observation"])
 async def get_observation_logs(
     limit: int = Query(100, ge=1, le=1000, description="Number of logs to return"),
-    service: Optional[str] = Query(None, description="Filter by service name"),
-    start_time: Optional[datetime] = Query(None, description="ISO timestamp for start range"),
-    end_time: Optional[datetime] = Query(None, description="ISO timestamp for end range"),
-    db: Session = Depends(get_db)
 ):
     """
-    Returns API observation logs from PostgreSQL (historical).
-    Enables analysis of historical traffic patterns and failure occurrences.
+    Returns real-time API observation logs from Redis.
+    Last 1000 entries captured by the pipeline.
     """
-    query = db.query(AuditLog)
-    if service:
-        query = query.filter(AuditLog.service == service)
-    if start_time:
-        query = query.filter(AuditLog.timestamp >= start_time)
-    if end_time:
-        query = query.filter(AuditLog.timestamp <= end_time)
-    
-    logs = query.order_by(AuditLog.timestamp.desc()).limit(limit).all()
-    return logs
+    try:
+        data = redis_client.lrange("observation:logs", 0, limit - 1)
+        return [json.loads(x) for x in data]
+    except Exception:
+        return []
+
+
+@router.get("/observation/logs/history", tags=["Observation"])
+async def get_observation_logs_history(
+    service: Optional[str] = Query(None, description="Filter by service name"),
+    limit: int = Query(500, ge=1, le=5000, description="Number of logs to return"),
+):
+    """
+    Returns historical logs from OpenSearch (permanent storage).
+    Supports optional service filter.
+    """
+    return opensearch_writer.get_recent_logs(service=service, limit=limit)
 
 
 @router.post("/observe", tags=["Observation"])
-async def observe_log(log: ObservationLog):
+async def observe_log(log: Dict[str, Any]):
     """
     Generic ingestion API for external systems.
-    Accepts standardized log schema and triggers detection pipeline.
+    Publishes directly to RabbitMQ for pipeline processing.
     """
-    await observation_store.push_log(log.model_dump())
-    return {"status": "accepted", "request_id": log.request_id}
+    rabbitmq_publisher.publish(log)
+    return {"status": "accepted"}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# DETECTION LAYER — Phase 2
+# DETECTION LAYER — Real-time + History
 # ──────────────────────────────────────────────────────────────────────────────
 
-@router.get("/detection/anomalies", response_model=List[AnomalyResponse], tags=["Detection"])
+@router.get("/detection/anomalies", tags=["Detection"])
 async def get_anomalies(
     limit: int = Query(50, ge=1, le=1000),
-    min_score: float = Query(0.0, ge=0.0, le=1.0),
-    service: Optional[str] = Query(None),
-    start_time: Optional[datetime] = Query(None),
-    end_time: Optional[datetime] = Query(None),
-    db: Session = Depends(get_db)
 ):
     """
-    Retrieve historical anomalies from PostgreSQL.
-    Allows drill-down into specific services and time periods.
+    Retrieve real-time anomalies from Redis.
+    Returns the most recent detected anomalies.
     """
-    query = db.query(AnomalyRecord).join(AuditLog)
-    query = query.filter(AnomalyRecord.anomaly_score >= min_score)
-    
-    if service:
-        query = query.filter(AuditLog.service == service)
-    if start_time:
-        query = query.filter(AnomalyRecord.timestamp >= start_time)
-    if end_time:
-        query = query.filter(AnomalyRecord.timestamp <= end_time)
-        
-    anomalies = query.order_by(AnomalyRecord.timestamp.desc()).limit(limit).all()
-    return anomalies
+    try:
+        data = redis_client.lrange("observation:anomalies", 0, limit - 1)
+        return [json.loads(x) for x in data]
+    except Exception:
+        return []
 
 
-@router.get("/stats", response_model=SystemStatsResponse, tags=["Dashboard"])
-async def get_system_stats(db: Session = Depends(get_db)):
+@router.get("/detection/anomalies/history", tags=["Detection"])
+async def get_anomaly_history(
+    service: Optional[str] = Query(None, description="Filter by service name"),
+    limit: int = Query(200, ge=1, le=2000),
+):
+    """
+    Returns historical anomaly records from OpenSearch (permanent storage).
+    """
+    return opensearch_writer.get_anomaly_history(service=service, limit=limit)
+
+
+@router.get("/stats", tags=["Dashboard"])
+async def get_system_stats():
     """
     Calculates overall system health and statistics.
-    Provides both total history and a 5-minute sliding window health score.
+    Reads from Redis lists and stat hashes.
     """
-    # 1. Total Stats
-    total_logs = db.query(AuditLog).count()
-    total_anomalies = db.query(AnomalyRecord).count()
-    health_score = (1 - (total_anomalies / total_logs)) * 100 if total_logs > 0 else 100.0
+    try:
+        total_logs = redis_client.llen("observation:logs")
+        total_anomalies = redis_client.llen("observation:anomalies")
+        health_score = (1 - (total_anomalies / total_logs)) * 100 if total_logs > 0 else 100.0
 
-    # 2. Window Stats (Last 5 Minutes)
-    window_start = datetime.utcnow() - timedelta(minutes=5)
-    window_logs = db.query(AuditLog).filter(AuditLog.timestamp >= window_start).count()
-    window_anomalies = db.query(AnomalyRecord).filter(AnomalyRecord.timestamp >= window_start).count()
-    window_health = (1 - (window_anomalies / window_logs)) * 100 if window_logs > 0 else 100.0
+        # Read stats hashes
+        by_type = {}
+        by_endpoint = {}
 
-    # 3. Aggregations (using Redis for real-time counters)
-    r = await observation_store.get_redis()
-    by_type = {}
-    by_endpoint = {}
-    
-    if r:
         try:
-            raw_types = await r.hgetall(f"{REDIS_STATS_PREFIX}:type")
+            raw_types = redis_client.hgetall("anomaly_stats:type")
             by_type = {k: int(v) for k, v in raw_types.items()}
-            
-            raw_endpoints = await r.hgetall(f"{REDIS_STATS_PREFIX}:endpoint")
+        except Exception:
+            pass
+
+        try:
+            raw_endpoints = redis_client.hgetall("anomaly_stats:endpoint")
             by_endpoint = {k: int(v) for k, v in raw_endpoints.items()}
-        except Exception as e:
-            from app.core.logging import logger
-            logger.error(f"Error fetching stats from Redis: {e}")
+        except Exception:
+            pass
 
-    return {
-        "total_logs": total_logs,
-        "total_anomalies": total_anomalies,
-        "health_score": round(health_score, 2),
-        "window_health_score": round(window_health, 2),
-        "by_endpoint": by_endpoint,
-        "by_type": by_type
-    }
+        return {
+            "total_logs": total_logs,
+            "total_anomalies": total_anomalies,
+            "health_score": round(health_score, 2),
+            "by_endpoint": by_endpoint,
+            "by_type": by_type,
+        }
+    except Exception:
+        return {
+            "total_logs": 0,
+            "total_anomalies": 0,
+            "health_score": 100.0,
+            "by_endpoint": {},
+            "by_type": {},
+        }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# HEALING LAYER — Phase 3
+# HEALING LAYER
 # ──────────────────────────────────────────────────────────────────────────────
 
-@router.get("/healing/actions", response_model=List[HealingActionResponse], tags=["Healing"])
+@router.get("/healing/actions", tags=["Healing"])
 async def get_healing_actions(
-    limit: int = Query(50, ge=1, le=1000, description="Max healing actions to return"),
-    service: Optional[str] = Query(None),
-    start_time: Optional[datetime] = Query(None),
-    end_time: Optional[datetime] = Query(None),
-    db: Session = Depends(get_db)
+    limit: int = Query(50, ge=1, le=1000),
 ):
     """
-    Retrieve history of healing actions from PostgreSQL.
-    Monitoring autonomous remediation effectiveness across the environment.
+    Retrieve real-time healing actions from Redis.
     """
-    query = db.query(HealingActionRecord).join(AnomalyRecord).join(AuditLog)
-    
-    if service:
-        query = query.filter(AuditLog.service == service)
-    if start_time:
-        query = query.filter(HealingActionRecord.timestamp >= start_time)
-    if end_time:
-        query = query.filter(HealingActionRecord.timestamp <= end_time)
-        
-    actions = query.order_by(HealingActionRecord.timestamp.desc()).limit(limit).all()
-    return actions
+    try:
+        data = redis_client.lrange("healing:actions", 0, limit - 1)
+        return [json.loads(x) for x in data]
+    except Exception:
+        return []
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ESCALATION ALERTS
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.get("/escalations", tags=["Healing"])
+async def get_escalation_alerts(
+    limit: int = Query(50, ge=1, le=100),
+):
+    """
+    Retrieve escalation alerts from Redis.
+    Generated when healing fails after 3 retry attempts.
+    """
+    try:
+        data = redis_client.lrange("escalation:alerts", 0, limit - 1)
+        return [json.loads(x) for x in data]
+    except Exception:
+        return []
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -240,7 +245,3 @@ async def set_global_failure_rate(rate: float = Query(..., ge=0.0, le=1.0)):
     """Set a global failure rate (0-1) that applies to all requests"""
     failure_simulator.state.global_failure_rate = rate
     return {"message": f"Global failure rate set to {rate * 100}%", "global_failure_rate": rate}
-
-
-# DEMO ENDPOINTS — Removed for system-agnostic modularity.
-# Generic traffic can now be ingested via POST /api/v1/observe

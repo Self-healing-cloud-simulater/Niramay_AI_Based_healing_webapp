@@ -167,9 +167,10 @@ silence_engine = SilenceDetectionEngine()
 def _silence_checker_loop():
     """
     Background loop that checks for silent services every N seconds.
-    Dispatches anomalies to Redis queue and OpenSearch.
+    Dispatches anomalies to Redis observation:anomalies (frontend-visible)
+    and OpenSearch b-anomaly-records (permanent).
     """
-    import redis as redis_lib
+    from app.core.redis_client import get_sync_redis
 
     logger.info(
         "Silence checker started",
@@ -186,21 +187,25 @@ def _silence_checker_loop():
                 continue
 
             try:
-                r = redis_lib.Redis(
-                    host=settings.REDIS_HOST,
-                    port=settings.REDIS_PORT,
-                    db=settings.REDIS_DB,
-                    password=settings.REDIS_PASSWORD,
-                    decode_responses=True,
-                    socket_connect_timeout=2,
-                )
+                r = get_sync_redis()
 
                 for anomaly in anomalies:
+                    # Push to Redis observation:anomalies (frontend-visible)
                     try:
-                        r.lpush("b-anomaly-queue", json.dumps(anomaly))
+                        r.lpush("observation:anomalies", json.dumps(anomaly))
+                        r.ltrim("observation:anomalies", 0, 999)
                     except Exception as e:
-                        logger.error("Failed to push silence anomaly to Redis queue", error=str(e))
+                        logger.error("Failed to push silence anomaly to Redis", error=str(e))
 
+                    # Update stats
+                    try:
+                        r.hincrby("anomaly_stats:type", "service_silence", 1)
+                        service = anomaly.get("service", "unknown")
+                        r.hincrby("anomaly_stats:endpoint", f"{service}:silence", 1)
+                    except Exception as e:
+                        logger.warning("Failed to update silence stats", error=str(e))
+
+                    # Write to OpenSearch
                     try:
                         from app.ingestion.opensearch_client import opensearch_writer
                         opensearch_writer.write_anomaly_record(anomaly)
@@ -224,3 +229,4 @@ def start_silence_checker():
     )
     thread.start()
     logger.info("Silence checker thread started")
+

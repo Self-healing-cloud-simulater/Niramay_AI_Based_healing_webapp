@@ -1,6 +1,6 @@
 """
 Application Configuration Settings
-Simplified for standalone Niramay (Redis-only, no PostgreSQL)
+Standalone Niramay — Redis + RabbitMQ + OpenSearch (no SQLite/PostgreSQL)
 """
 from typing import List, Optional
 from pydantic_settings import BaseSettings
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_PASSWORD: Optional[str] = None
-    DATABASE_URL: str = "postgresql://user:password@localhost/niramay"
+
 
     # RabbitMQ (Stage 1 — log ingestion from Component C)
     RABBITMQ_HOST: str = "localhost"
@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     RABBITMQ_USER: str = "guest"
     RABBITMQ_PASSWORD: str = "guest"
     RABBITMQ_QUEUE: str = "component-c-logs"
+    RABBITMQ_QUEUE_NAME: str = "component-c-logs"  # alias used by publisher/consumer
 
     # OpenSearch (permanent storage)
     OPENSEARCH_HOST: str = "localhost"

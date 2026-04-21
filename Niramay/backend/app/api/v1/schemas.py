@@ -1,52 +1,71 @@
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+"""
+API Response Schemas
 
-class AuditLogResponse(BaseModel):
-    id: int
-    timestamp: datetime
+Pydantic models matching the flat JSON structures stored in Redis.
+No SQLAlchemy dependencies.
+"""
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+
+
+class ObservationLogResponse(BaseModel):
+    """Normalized log from Redis observation:logs"""
+    timestamp: str
     service: str
     endpoint: str
-    method: str
+    method: Optional[str] = "UNKNOWN"
     status_code: int
-    response_time: float
-    failure_type: str
-    request_id: Optional[str]
-    metadata_json: Dict[str, Any]
+    response_time_ms: float
+    failure_tag: str
+    request_id: Optional[str] = None
 
-    class Config:
-        from_attributes = True
 
 class AnomalyResponse(BaseModel):
-    id: int
-    log_id: int
-    timestamp: datetime
+    """Detection result from Redis observation:anomalies"""
+    detection_id: str
+    timestamp: str
+    service: str
+    endpoint: str
+    method: Optional[str] = "UNKNOWN"
+    status_code: int
+    response_time_ms: float
+    failure_tag: str
+    anomaly_score: int
+    anomaly_reasons: List[str]
+    engines_triggered: List[str]
+    severity: str
     is_anomaly: bool
-    anomaly_score: float
-    reasons: List[str]
-    ai_analysis: Dict[str, Any]
-    log: Optional[AuditLogResponse] = None
+    requires_llm: bool
+    ai_analysis: Optional[Any] = None
+    healing: Optional[Dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
 
 class HealingActionResponse(BaseModel):
-    id: int
-    anomaly_id: int
-    timestamp: datetime
-    action: str
+    """Healing action from Redis healing:actions"""
+    healing_action: str
     status: str
+    timestamp: str
     message: str
     verification_status: str
-    verification_timestamp: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+
+class EscalationAlertResponse(BaseModel):
+    """Escalation alert from Redis escalation:alerts"""
+    type: str
+    service: str
+    endpoint: str
+    failure_type: str
+    attempts: int
+    healing_actions_tried: List[str]
+    outcomes: List[str]
+    timestamp: str
+    message: str
+
 
 class SystemStatsResponse(BaseModel):
+    """System health statistics from Redis"""
     total_logs: int
     total_anomalies: int
     health_score: float
     by_endpoint: Dict[str, int]
     by_type: Dict[str, int]
-    window_health_score: float = Field(..., description="Health score based on the last 5 minutes of traffic")

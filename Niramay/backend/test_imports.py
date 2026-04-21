@@ -44,11 +44,12 @@ print("  Malformed: OK")
 # Test 2: OpenSearch Client
 # ──────────────────────────────────────────────────────────
 print("\n[2] OpenSearch Client...")
-from app.ingestion.opensearch_client import opensearch_writer, INDEX_NORMALIZED_LOGS, INDEX_ANOMALY_RECORDS, INDEX_HEALTHY_LOGS
+from app.ingestion.opensearch_client import opensearch_writer, INDEX_NORMALIZED_LOGS, INDEX_ANOMALY_RECORDS, INDEX_HEALTHY_LOGS, INDEX_HEALING_RECORDS
 assert INDEX_NORMALIZED_LOGS == "b-normalized-logs"
 assert INDEX_ANOMALY_RECORDS == "b-anomaly-records"
 assert INDEX_HEALTHY_LOGS == "b-healthy-logs"
-print("  Indices: OK")
+assert INDEX_HEALING_RECORDS == "b-healing-records"
+print("  Indices: OK (4 indices)")
 
 # ──────────────────────────────────────────────────────────
 # Test 3: RabbitMQ Consumer
@@ -175,8 +176,8 @@ multi_log = {
 result = detection_service.detect_anomaly(multi_log)
 assert result["is_anomaly"] == True
 assert len(result["anomaly_reasons"]) >= 2  # At least server_error + high_latency or timeout
-# Multiple reasons → requires_llm should be True
-assert result["requires_llm"] == True
+# failure_tag is "timeout" (classified) → requires_llm should be False
+assert result["requires_llm"] == False
 print(f"  Multi-signal: ANOMALY (score={result['anomaly_score']}, requires_llm={result['requires_llm']}, reasons={result['anomaly_reasons']})")
 
 # ──────────────────────────────────────────────────────────
@@ -200,6 +201,7 @@ assert settings.BASELINE_DEVIATION_FACTOR == 2.0
 assert settings.BASELINE_MIN_SAMPLES == 20
 assert settings.OLLAMA_MODEL == "llama3.2"
 assert settings.RABBITMQ_QUEUE == "component-c-logs"
+assert settings.RABBITMQ_QUEUE_NAME == "component-c-logs"
 print(f"  All settings: OK")
 
 # ──────────────────────────────────────────────────────────

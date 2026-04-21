@@ -1,6 +1,8 @@
 """
 Niramay — FastAPI Application Entry Point
-Standalone application containing only the Observation → Detection → Healing pipeline.
+Standalone application containing the unified Observation → Detection → Healing pipeline.
+
+Pipeline: Traffic Generator → Middleware → RabbitMQ → Normalizer → OpenSearch + Detection → Healing
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +10,7 @@ from fastapi.responses import JSONResponse
 import time
 
 from app.core.config import settings
-from app.core.failure_middleware import FailureSimulationMiddleware
+from app.simulation.failure_middleware import FailureSimulationMiddleware
 from app.core.logging import logger, log_request
 from app.observation.middleware import ObservationMiddleware
 from app.api.v1.endpoints import router as api_router
@@ -18,20 +20,23 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="""
-    ## Niramay — Standalone Self-Healing Cloud Infrastructure
+    ## Niramay — Self-Healing Cloud Infrastructure
 
-    This application extracts the complete **Observation → Detection → Healing** pipeline
-    from the CRAVE food delivery failure simulator.
+    Unified pipeline: **Observation → Detection → Healing**
 
-    ### Pipeline Phases:
-    1. **Observation** — Captures all API traffic (CCTV for APIs)
-    2. **Detection** — Scores anomalies using a weighted rule engine
-    3. **Healing** — Automatically decides and executes healing actions
+    ### Pipeline Flow:
+    1. **Traffic** → Failure Middleware → Observation Middleware → RabbitMQ
+    2. **RabbitMQ Consumer** → Normalizer → OpenSearch + Redis
+    3. **Detection Worker** → 4 engines → Anomaly scoring
+    4. **Healing Engine** → Strategy execution → Verification
 
     ### API Endpoints:
-    - `GET /api/v1/observation/logs` — Raw traffic logs
-    - `GET /api/v1/detection/anomalies` — Detected anomalies with scores
-    - `GET /api/v1/healing/actions` — Executed healing actions
+    - `GET /api/v1/observation/logs` — Real-time traffic logs (Redis)
+    - `GET /api/v1/observation/logs/history` — Historical logs (OpenSearch)
+    - `GET /api/v1/detection/anomalies` — Detected anomalies (Redis)
+    - `GET /api/v1/detection/anomalies/history` — Historical anomalies (OpenSearch)
+    - `GET /api/v1/healing/actions` — Healing actions (Redis)
+    - `GET /api/v1/escalations` — Escalation alerts (Redis)
     - `GET /api/v1/failure-simulator/*` — Control failure injection
     """,
     docs_url="/docs",
@@ -98,8 +103,11 @@ async def root():
         "dashboard": "http://localhost:3000",
         "endpoints": {
             "observation": "/api/v1/observation/logs",
+            "observation_history": "/api/v1/observation/logs/history",
             "detection": "/api/v1/detection/anomalies",
+            "detection_history": "/api/v1/detection/anomalies/history",
             "healing": "/api/v1/healing/actions",
+            "escalations": "/api/v1/escalations",
             "failure_simulator": "/api/v1/failure-simulator/status",
         }
     }
@@ -121,16 +129,14 @@ async def startup_event():
     """Initialize application on startup"""
     logger.info("Application starting", app_name=settings.APP_NAME, version=settings.APP_VERSION)
 
-    # Initialize SQL Database (Create tables if they don't exist)
+    # ── Initialize RabbitMQ publisher ──
     try:
-        from app.db.session import engine, Base
-        import app.db.models # Ensure models are registered
-        Base.metadata.create_all(bind=engine)
-        logger.info("SQL Database initialized successfully")
+        from app.ingestion.rabbitmq_publisher import rabbitmq_publisher
+        logger.info("RabbitMQ publisher initialized")
     except Exception as e:
-        logger.error("Failed to initialize SQL Database", error=str(e))
+        logger.warning("RabbitMQ publisher init failed (non-fatal)", error=str(e))
 
-    # ── Stage 1: Initialize OpenSearch indices ──
+    # ── Initialize OpenSearch indices ──
     try:
         from app.ingestion.opensearch_client import opensearch_writer
         opensearch_writer.ensure_indices()
@@ -138,7 +144,7 @@ async def startup_event():
     except Exception as e:
         logger.warning("OpenSearch initialization failed (non-fatal)", error=str(e))
 
-    # ── Stage 1: Start RabbitMQ consumer (ingests logs from Component C) ──
+    # ── Start RabbitMQ consumer (ingests logs from middleware + Component C) ──
     try:
         from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer
         start_rabbitmq_consumer()
@@ -146,7 +152,7 @@ async def startup_event():
     except Exception as e:
         logger.warning("RabbitMQ consumer start failed (non-fatal)", error=str(e))
 
-    # ── Stage 2: Start silence detection background checker ──
+    # ── Start silence detection background checker ──
     try:
         from app.detection.engines.silence_detection_engine import start_silence_checker
         start_silence_checker()
@@ -154,23 +160,22 @@ async def startup_event():
     except Exception as e:
         logger.warning("Silence checker start failed (non-fatal)", error=str(e))
 
-    # Start the Detection Worker (Observation → Detection → Healing pipeline)
+    # ── Start Detection Worker ──
     from app.detection.worker import start_detection_worker
     start_detection_worker()
 
-    # Start the Traffic Generator (creates synthetic API traffic for the demo)
+    # ── Start Traffic Generator (demo mode) ──
     if settings.TRAFFIC_GENERATOR_ENABLED:
-        from app.traffic_generator import start_traffic_generator
+        from app.simulation.traffic_generator import start_traffic_generator
         start_traffic_generator(interval_ms=settings.TRAFFIC_GENERATOR_INTERVAL_MS)
 
-    # Start the Healing Verification Worker
+    # ── Start Healing Verification Worker ──
     from app.healing.verification_worker import start_verification_worker
     start_verification_worker()
 
-    # Enable some failure scenarios by default so the dashboard has interesting data
-    from app.core.failure_config import failure_simulator
+    # ── Enable default failure scenarios for demo ──
+    from app.simulation.failure_config import failure_simulator
     failure_simulator.enable_scenario("database_error")
-    # failure_simulator.enable_scenario("service_overload")
     logger.info("Enabled default failure scenarios for demo: database_error")
 
 

@@ -31,8 +31,8 @@ function ActionIcon({ action }: { action: string }) {
 
 export default function HealingActionsPanel({ actions }: { actions: HealingAction[] }) {
   const byType = (actions || []).reduce<Record<string, number>>((acc, x) => {
-    if (x && x.action) {
-      acc[x.action] = (acc[x.action] || 0) + 1;
+    if (x && x.healing_action) {
+      acc[x.healing_action] = (acc[x.healing_action] || 0) + 1;
     }
     return acc;
   }, {});
@@ -130,7 +130,7 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                   flexShrink: 0,
                   marginTop: 2,
                 }}>
-                  <ActionIcon action={a.action} />
+                  <ActionIcon action={a.healing_action} />
                 </div>
 
                 {/* Content */}
@@ -147,7 +147,7 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                       color: 'var(--color-text-primary)',
                       textTransform: 'capitalize',
                     }}>
-                      {a.action.replace(/_/g, ' ')}
+                      {a.healing_action.replace(/_/g, ' ')}
                     </span>
 
                     <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>

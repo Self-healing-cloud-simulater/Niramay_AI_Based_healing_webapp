@@ -50,12 +50,14 @@ def normalize_log(raw_message: str) -> Dict[str, Any]:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "service": "unknown",
             "endpoint": "unknown",
+            "method": "UNKNOWN",
             "status_code": 0,
             "response_time_ms": 0.0,
             "failure_tag": "none",
             "request_id": None,
             "raw": raw_message,
             "is_malformed": True,
+            "is_timestamp_assigned": True,
             "incomplete_fields": [
                 "timestamp", "service", "endpoint",
                 "status_code", "response_time_ms", "failure_tag"
@@ -64,8 +66,10 @@ def normalize_log(raw_message: str) -> Dict[str, Any]:
 
     # ── Timestamp ──
     timestamp = data.get("timestamp")
+    is_timestamp_assigned = False
     if not timestamp:
         timestamp = datetime.now(timezone.utc).isoformat()
+        is_timestamp_assigned = True
         incomplete_fields.append("timestamp")
     else:
         # Validate it's a parseable ISO8601 string; if not, replace
@@ -74,6 +78,7 @@ def normalize_log(raw_message: str) -> Dict[str, Any]:
             timestamp = str(timestamp)
         except (ValueError, TypeError):
             timestamp = datetime.now(timezone.utc).isoformat()
+            is_timestamp_assigned = True
             incomplete_fields.append("timestamp")
 
     # ── Service ──
@@ -129,17 +134,23 @@ def normalize_log(raw_message: str) -> Dict[str, Any]:
     if request_id is not None:
         request_id = str(request_id)
 
+    # ── Method ──
+    method = data.get("method", "UNKNOWN")
+    method = str(method).upper() if method else "UNKNOWN"
+
     # ── Build normalized output ──
     normalized = {
         "timestamp": timestamp,
         "service": service,
         "endpoint": endpoint,
+        "method": method,
         "status_code": status_code,
         "response_time_ms": response_time_ms,
         "failure_tag": failure_tag,
         "request_id": request_id,
         "raw": raw_message,
         "is_malformed": False,
+        "is_timestamp_assigned": is_timestamp_assigned,
         "incomplete_fields": incomplete_fields,
     }
 

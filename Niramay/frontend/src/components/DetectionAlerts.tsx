@@ -197,7 +197,7 @@ export default function DetectionAlerts({
                     color: `var(--color-status-${severityDot(a.severity)})`,
                     fontVariantNumeric: 'tabular-nums',
                   }}>
-                    {a.anomaly_score.toFixed(1)}
+                    {a.anomaly_score}
                   </span>
 
                   <span style={{
@@ -211,7 +211,7 @@ export default function DetectionAlerts({
                     {a.method}
                   </span>
 
-                  {a.requires_llm_analysis && (
+                  {a.requires_llm && (
                     <span className="badge badge-accent" style={{ fontSize: 8, padding: '0 4px' }}>AI</span>
                   )}
 

@@ -230,7 +230,7 @@ function ObservationStream({ logs }: { logs: ReturnType<typeof useNiramayData>['
                 width: 40,
                 textAlign: 'right',
               }}>
-                {log.response_time_ms.toFixed(0)}ms
+                {(log.response_time_ms ?? 0).toFixed(0)}ms
               </span>
             </motion.div>
           ))}
@@ -279,7 +279,7 @@ function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any })
         </div>
         {hasAnomalies && (
           <span className="badge badge-warning" style={{ fontSize: 10 }}>
-            {anomalyData!.total} detected
+            {anomalies.length} detected
           </span>
         )}
       </div>

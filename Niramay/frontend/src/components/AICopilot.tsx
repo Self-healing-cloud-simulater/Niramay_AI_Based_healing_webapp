@@ -170,7 +170,7 @@ export default function AICopilot({ anomalies = [] }: { anomalies?: AnomalyLog[]
           </div>
           {anomalies.filter(a => a.ai_analysis).slice(0, 5).map(a => (
             <motion.div
-              key={a.id}
+              key={a.detection_id}
               className="row-interactive"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
