@@ -26,6 +26,21 @@ from app.ingestion.opensearch_client import opensearch_writer
 
 logger = structlog.get_logger(__name__)
 
+# Redis Key Ownership for this worker:
+# WRITES:
+#   observation:anomalies  - anomaly feed for API
+#   healing:actions        - healing results for API
+#   anomaly_stats:type     - stats hash for API
+#   anomaly_stats:endpoint - stats hash for API
+#   escalation:alerts      - escalation feed for API
+#
+# DOES NOT WRITE (written by RabbitMQ consumer):
+#   observation:logs       - raw log feed for API
+#   observation:pending_detection - detection queue
+#
+# This separation is intentional. The consumer owns
+# log ingestion. The worker owns detection results.
+
 # Redis key names
 PENDING_DETECTION_KEY = "observation:pending_detection"
 ANOMALIES_KEY = "observation:anomalies"

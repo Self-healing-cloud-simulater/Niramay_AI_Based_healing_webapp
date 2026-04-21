@@ -145,7 +145,7 @@ export interface EscalationAlert {
   type: string;
   service: string;
   endpoint: string;
-  failure_type: string;
+  failure_tag: string;  // Uses failure_tag to match detection pipeline output
   attempts: number;
   healing_actions_tried: string[];
   outcomes: string[];

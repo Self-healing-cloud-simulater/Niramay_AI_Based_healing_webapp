@@ -177,7 +177,7 @@ async def _escalate(r, pv: dict, detection_id: str):
         "type": "escalation",
         "service": pv["service"],
         "endpoint": pv["endpoint"],
-        "failure_type": pv["failure_tag"],
+        "failure_tag": pv["failure_tag"],
         "attempts": pv["attempts"],
         "healing_actions_tried": pv["healing_actions_tried"],
         "outcomes": pv["outcomes"],
