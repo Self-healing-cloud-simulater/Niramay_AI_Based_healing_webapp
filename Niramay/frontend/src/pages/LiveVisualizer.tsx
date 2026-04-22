@@ -361,14 +361,14 @@ function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any })
               alignItems: 'center',
               gap: 'var(--space-2)',
             }}>
-              <span className={`dot dot-${a.anomaly_score >= 5 ? 'error' : 'warning'}`} />
+              <span className={`dot dot-${a.severity === 'critical' || a.severity === 'high' ? 'error' : 'warning'}`} />
               <span style={{
                 fontFamily: 'var(--font-mono)',
                 fontSize: 10,
-                color: a.anomaly_score >= 5 ? 'var(--color-status-error)' : 'var(--color-status-warning)',
+                color: a.severity === 'critical' || a.severity === 'high' ? 'var(--color-status-error)' : 'var(--color-status-warning)',
                 fontVariantNumeric: 'tabular-nums',
               }}>
-                {a.anomaly_score.toFixed(1)}
+                {a.anomaly_score.toFixed(2)}
               </span>
               <span style={{
                 flex: 1,

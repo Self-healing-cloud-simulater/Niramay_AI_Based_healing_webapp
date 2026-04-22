@@ -30,7 +30,7 @@ class AnomalyResponse(BaseModel):
     status_code: int
     response_time_ms: float
     failure_tag: str
-    anomaly_score: int
+    anomaly_score: float
     anomaly_reasons: List[str]
     engines_triggered: List[str]
     severity: str

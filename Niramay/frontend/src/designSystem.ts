@@ -111,7 +111,7 @@ export interface AnomalyLog {
   anomaly_score: number;
   anomaly_reasons: string[];
   engines_triggered: string[];
-  severity: 'low' | 'medium' | 'high';
+  severity: 'low' | 'medium' | 'high' | 'critical';
   is_anomaly: boolean;
   requires_llm: boolean;
   ai_analysis?: {

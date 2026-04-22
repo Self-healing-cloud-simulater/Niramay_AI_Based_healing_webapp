@@ -59,7 +59,7 @@ _INDEX_MAPPINGS = {
                 "failure_tag": {"type": "keyword"},
                 "engines_triggered": {"type": "keyword"},
                 "anomaly_reasons": {"type": "keyword"},
-                "anomaly_score": {"type": "integer"},
+                "anomaly_score": {"type": "float"},
                 "severity": {"type": "keyword"},
                 "is_anomaly": {"type": "boolean"},
                 "requires_llm": {"type": "boolean"},

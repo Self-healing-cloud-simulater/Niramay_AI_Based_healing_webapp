@@ -197,7 +197,7 @@ export default function DetectionAlerts({
                     color: `var(--color-status-${severityDot(a.severity)})`,
                     fontVariantNumeric: 'tabular-nums',
                   }}>
-                    {a.anomaly_score}
+                    {a.anomaly_score.toFixed(2)}
                   </span>
 
                   <span style={{

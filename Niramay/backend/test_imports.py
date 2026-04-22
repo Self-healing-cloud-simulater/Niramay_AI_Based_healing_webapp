@@ -144,7 +144,7 @@ assert "is_anomaly" in result
 assert "requires_llm" in result
 assert result["is_anomaly"] == True
 assert "server_error" in result["anomaly_reasons"]
-assert result["anomaly_score"] >= 3
+assert result["anomaly_score"] >= 0.4  # Normalized [0, 1] threshold
 print(f"  Server error: ANOMALY (score={result['anomaly_score']}, severity={result['severity']}, engines={result['engines_triggered']})")
 
 # Test healthy log (no triggers)
@@ -159,7 +159,7 @@ healthy_log = {
 }
 result = detection_service.detect_anomaly(healthy_log)
 assert result["is_anomaly"] == False
-assert result["anomaly_score"] == 0
+assert result["anomaly_score"] == 0.0  # Normalized: healthy = 0.0
 print(f"  Healthy log: OK (score={result['anomaly_score']}, is_anomaly=False)")
 
 # Test multi-signal (server_error + high_latency + failure_tag)
