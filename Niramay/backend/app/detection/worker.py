@@ -23,6 +23,7 @@ from app.core.redis_client import get_async_redis
 from app.detection.index import detection_service
 from app.healing.index import healing_service
 from app.ingestion.opensearch_client import opensearch_writer
+from app.reporting.report_generator import generate_incident_report
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +46,7 @@ logger = structlog.get_logger(__name__)
 PENDING_DETECTION_KEY = "observation:pending_detection"
 ANOMALIES_KEY = "observation:anomalies"
 HEALING_KEY = "healing:actions"
+INCIDENT_REPORTS_KEY = "incident:reports"
 STATS_TYPE_KEY = "anomaly_stats:type"
 STATS_ENDPOINT_KEY = "anomaly_stats:endpoint"
 LIST_CAP = 1000
@@ -167,6 +169,31 @@ async def _handle_anomaly(r, detection_result: dict):
             opensearch_writer.write_healing_record(healing_record)
         except Exception as e:
             logger.warning("Failed to write healing to OpenSearch", error=str(e))
+
+    # ── 7. Generate and Store Incident Report ──
+    try:
+        # Default empty dict if no AI analysis was performed
+        ai_data = ai_analysis or {}
+        
+        # Default skipped healing if it failed or didn't run
+        heal_data = healing_result or {
+            "healing_action": "none",
+            "status": "skipped",
+            "message": "Healing engine failed or was bypassed."
+        }
+        
+        incident_report = generate_incident_report(detection_result, ai_data, heal_data)
+        
+        # Store in Redis for real-time frontend feed
+        report_json = json.dumps(incident_report)
+        await r.lpush(INCIDENT_REPORTS_KEY, report_json)
+        await r.ltrim(INCIDENT_REPORTS_KEY, 0, LIST_CAP - 1)
+        
+        # Store in OpenSearch for history
+        opensearch_writer.write_incident_report(incident_report)
+        
+    except Exception as e:
+        logger.error("Failed to generate/store incident report", error=str(e))
 
 
 def _handle_healthy(detection_result: dict):

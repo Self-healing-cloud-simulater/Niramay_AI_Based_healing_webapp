@@ -113,3 +113,13 @@ class CausalEngine:
 
 # Singleton instance
 causal_engine = CausalEngine()
+
+
+async def analyze_anomaly(log: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Convenience wrapper for the detection worker.
+
+    The detection worker imports this function:
+        from app.causal_engine.client import analyze_anomaly
+    """
+    return await causal_engine.analyze(log)

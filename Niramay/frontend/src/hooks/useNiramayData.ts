@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import type { ObservationLog, AnomalyLog, HealingAction, SystemStats, EscalationAlert } from '../designSystem';
+import type { ObservationLog, AnomalyLog, HealingAction, SystemStats, EscalationAlert, IncidentReport } from '../designSystem';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -16,6 +16,7 @@ export interface NiramayData {
   anomalies: AnomalyLog[];
   healingActions: HealingAction[];
   escalations: EscalationAlert[];
+  incidentReports: IncidentReport[];
   stats: SystemStats | null;
   isLive: boolean;
   setIsLive: (v: boolean) => void;
@@ -36,6 +37,7 @@ export function useNiramayData(): NiramayData {
   const [anomalies, setAnomalies] = useState<AnomalyLog[]>([]);
   const [healingActions, setHealingActions] = useState<HealingAction[]>([]);
   const [escalations, setEscalations] = useState<EscalationAlert[]>([]);
+  const [incidentReports, setIncidentReports] = useState<IncidentReport[]>([]);
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [isLive, setIsLive] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
@@ -44,12 +46,13 @@ export function useNiramayData(): NiramayData {
 
   const fetchData = useCallback(async () => {
     try {
-      const [a, b, c, d, e] = await Promise.allSettled([
+      const [a, b, c, d, e, f] = await Promise.allSettled([
         axios.get(`${API}/api/v1/observation/logs?limit=50`),
         axios.get(`${API}/api/v1/detection/anomalies?limit=30`),
         axios.get(`${API}/api/v1/healing/actions?limit=30`),
         axios.get(`${API}/api/v1/stats`),
         axios.get(`${API}/api/v1/escalations?limit=20`),
+        axios.get(`${API}/api/v1/incident/reports?limit=20`),
       ]);
       
       if (a.status === 'fulfilled' && Array.isArray(a.value.data)) {
@@ -66,6 +69,9 @@ export function useNiramayData(): NiramayData {
       }
       if (e.status === 'fulfilled' && Array.isArray(e.value.data)) {
         setEscalations(e.value.data);
+      }
+      if (f.status === 'fulfilled' && Array.isArray(f.value.data)) {
+        setIncidentReports(f.value.data);
       }
       
       setLastRefresh(new Date());
@@ -93,6 +99,7 @@ export function useNiramayData(): NiramayData {
     anomalies,
     healingActions,
     escalations,
+    incidentReports,
     stats,
     isLive,
     setIsLive,

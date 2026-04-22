@@ -171,6 +171,32 @@ async def get_escalation_alerts(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# INCIDENT REPORTS
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.get("/incident/reports", tags=["Incidents"])
+async def get_incident_reports(
+    limit: int = Query(50, ge=1, le=1000),
+):
+    """
+    Retrieve real-time incident reports from Redis.
+    """
+    try:
+        data = redis_client.lrange("incident:reports", 0, limit - 1)
+        return [json.loads(x) for x in data]
+    except Exception:
+        return []
+
+@router.get("/incident/reports/history", tags=["Incidents"])
+async def get_incident_reports_history(
+    limit: int = Query(200, ge=1, le=2000),
+):
+    """
+    Returns historical incident reports from OpenSearch (permanent storage).
+    """
+    return opensearch_writer.get_incident_reports(limit=limit)
+
+# ──────────────────────────────────────────────────────────────────────────────
 # FAILURE SIMULATOR — Controls (for generating failures to heal)
 # ──────────────────────────────────────────────────────────────────────────────
 

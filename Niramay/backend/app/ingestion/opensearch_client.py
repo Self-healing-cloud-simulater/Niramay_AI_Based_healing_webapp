@@ -26,6 +26,7 @@ INDEX_NORMALIZED_LOGS = "b-normalized-logs"
 INDEX_ANOMALY_RECORDS = "b-anomaly-records"
 INDEX_HEALTHY_LOGS = "b-healthy-logs"
 INDEX_HEALING_RECORDS = "b-healing-records"
+INDEX_INCIDENT_REPORTS = "b-incident-reports"
 
 # Index mappings
 _INDEX_MAPPINGS = {
@@ -90,6 +91,24 @@ _INDEX_MAPPINGS = {
                 "message": {"type": "text"},
                 "verification_status": {"type": "keyword"},
                 "detection_id": {"type": "keyword"},
+            }
+        }
+    },
+    INDEX_INCIDENT_REPORTS: {
+        "mappings": {
+            "properties": {
+                "timestamp": {"type": "date"},
+                "detection_id": {"type": "keyword"},
+                "alert_id": {"type": "keyword"},
+                "service": {"type": "keyword"},
+                "endpoint": {"type": "keyword"},
+                "severity": {"type": "keyword"},
+                "anomaly_score": {"type": "float"},
+                "root_cause": {"type": "text"},
+                "healing_action": {"type": "keyword"},
+                "healing_status": {"type": "keyword"},
+                "verification_status": {"type": "keyword"},
+                "human_report": {"type": "text"},
             }
         }
     },
@@ -195,6 +214,36 @@ class OpenSearchWriter:
         """Non-blocking write to b-healing-records."""
         self._executor.submit(self._write_document, INDEX_HEALING_RECORDS, document)
 
+    def write_incident_report(self, document: Dict[str, Any]) -> None:
+        """Non-blocking write to b-incident-reports."""
+        self._executor.submit(self._write_document, INDEX_INCIDENT_REPORTS, document)
+
+    def _update_incident_status(self, detection_id: str, status: str) -> None:
+        """Synchronous update — runs inside the thread pool."""
+        client = self._get_client()
+        if not client:
+            return
+        
+        body = {
+            "script": {
+                "source": "ctx._source.verification_status = params.status",
+                "lang": "painless",
+                "params": {"status": status}
+            },
+            "query": {
+                "term": {"detection_id": detection_id}
+            }
+        }
+        
+        try:
+            client.update_by_query(index=INDEX_INCIDENT_REPORTS, body=body)
+        except Exception as e:
+            logger.error("OpenSearch update_by_query failed", index=INDEX_INCIDENT_REPORTS, error=str(e))
+
+    def update_incident_report_status(self, detection_id: str, status: str) -> None:
+        """Non-blocking update of verification_status in b-incident-reports."""
+        self._executor.submit(self._update_incident_status, detection_id, status)
+
     # ── Read Methods (synchronous, for API + verification worker) ──
 
     def _search(self, index: str, body: dict, size: int = 100) -> List[Dict]:
@@ -261,6 +310,14 @@ class OpenSearchWriter:
             "sort": [{"timestamp": {"order": "asc"}}],
         }
         return self._search(INDEX_NORMALIZED_LOGS, body, size=50)
+
+    def get_incident_reports(self, limit: int = 50) -> List[Dict]:
+        """Fetch the most recent incident reports."""
+        query = {
+            "query": {"match_all": {}},
+            "sort": [{"timestamp": {"order": "desc"}}]
+        }
+        return self._search(INDEX_INCIDENT_REPORTS, query, size=limit)
 
 
 # Singleton instance
