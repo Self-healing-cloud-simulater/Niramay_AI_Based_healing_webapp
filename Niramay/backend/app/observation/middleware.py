@@ -24,6 +24,8 @@ _EXCLUDED_PATHS = {
     "/api/v1/detection/anomalies/history",
     "/api/v1/healing/actions",
     "/api/v1/escalations",
+    "/api/v1/incident/reports",
+    "/api/v1/incident/reports/history",
     "/api/v1/stats",
     "/api/v1/failure-simulator/status",
     "/api/v1/failure-simulator/scenarios",
