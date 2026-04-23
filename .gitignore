@@ -31,4 +31,5 @@ Thumbs.db
 *.swo
 
 # Build artifacts
-frontend/dist/
+frontend/dist/.DS_Store
+**/.DS_Store
