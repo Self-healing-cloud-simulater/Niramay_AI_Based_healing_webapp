@@ -2,6 +2,10 @@ import httpx
 import json
 import structlog
 from app.core.config import settings
+from app.shared.healing_vocabulary import (
+    HEALING_ACTIONS,
+    coerce_action,
+)
 from typing import Dict, Any, Optional
 
 logger = structlog.get_logger(__name__)
@@ -42,11 +46,21 @@ class CausalEngine:
                 if response.status_code == 200:
                     result = response.json()
                     ai_response = json.loads(result.get("response", "{}"))
+                    raw_action = ai_response.get("suggested_action", "none")
+                    validated_action = coerce_action(raw_action)
+                    if validated_action != raw_action:
+                        logger.warning(
+                            "LLM returned action outside vocabulary, coerced",
+                            returned=raw_action,
+                            coerced_to=validated_action,
+                        )
                     return {
-                        "root_cause": ai_response.get("root_cause", "Unknown (AI Parsing Error)"),
+                        "root_cause": ai_response.get(
+                            "root_cause", "Unknown (AI Parsing Error)"
+                        ),
                         "confidence": ai_response.get("confidence", 0.5),
-                        "suggested_action": ai_response.get("suggested_action", "Investigate manually"),
-                        "analysis_type": "ai_llm"
+                        "suggested_action": validated_action,
+                        "analysis_type": "ai_llm",
                     }
                 else:
                     logger.warning("Ollama API returned error", status=response.status_code)
@@ -58,9 +72,13 @@ class CausalEngine:
 
     def _build_prompt(self, log: Dict[str, Any]) -> str:
         """Constructs the prompt for the LLM with enriched Stage 2 context"""
+        vocab_block = "\n".join(
+            f"       - {k}: {v}"
+            for k, v in HEALING_ACTIONS.items()
+        )
         return f"""
         You are an expert SRE and system architect. Analyze the following anomaly detected in a backend service and provide a root cause analysis in JSON format.
-        
+
         LOG DATA:
         - Service: {log.get('service')}
         - Endpoint: {log.get('endpoint')}
@@ -72,13 +90,17 @@ class CausalEngine:
         - Anomaly Score: {log.get('anomaly_score', 'N/A')}
         - Severity: {log.get('severity', 'N/A')}
         - Metadata: {log.get('metadata')}
-        
+
         INSTRUCTIONS:
         1. Identify the most likely root cause considering all triggered detection engines.
         2. Assign a confidence score between 0.0 and 1.0.
-        3. Suggest a technical healing action (e.g., restart_service, flush_cache, scale_up, throttle_requests, circuit_breaker, etc.).
+        3. Suggest a technical healing action. You MUST pick exactly
+           ONE value from this allowed vocabulary:
+{vocab_block}
+           Do not invent new action names. Do not return phrases or
+           sentences. Return only the single action key.
         4. Return ONLY a valid JSON object with the keys: "root_cause", "confidence", "suggested_action".
-        
+
         Example Output:
         {{
             "root_cause": "Database connection pool exhaustion due to high concurrent traffic.",
