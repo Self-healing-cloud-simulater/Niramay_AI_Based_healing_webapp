@@ -141,6 +141,7 @@ async def verification_worker_loop():
                         detection_id=detection_id,
                         failure_rate=f"{failure_rate:.1%}",
                     )
+                    opensearch_writer.update_incident_report_status(detection_id, "SUCCESS")
                     del pending_verifications[detection_id]
                 else:
                     # ❌ Anomaly persists
@@ -151,6 +152,7 @@ async def verification_worker_loop():
                     if pv["attempts"] >= MAX_RETRY_ATTEMPTS:
                         # Generate escalation alert
                         await _escalate(r, pv, detection_id)
+                        opensearch_writer.update_incident_report_status(detection_id, "ESCALATED")
                         del pending_verifications[detection_id]
                     else:
                         # Retry with escalated healing
@@ -160,6 +162,7 @@ async def verification_worker_loop():
                             attempt=pv["attempts"],
                         )
                         # The next detection cycle will pick this up naturally
+                        opensearch_writer.update_incident_report_status(detection_id, "FAILED_RETRYING")
 
             await asyncio.sleep(15)
 

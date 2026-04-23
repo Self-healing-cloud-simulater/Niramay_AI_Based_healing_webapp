@@ -141,6 +141,16 @@ export interface HealingAction {
   verification_status: string;
 }
 
+export interface IncidentReport {
+  detection_id: string;
+  timestamp: string;
+  service: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  human_report: string;
+  machine_alert: any;
+  verification_status: string;
+}
+
 export interface EscalationAlert {
   type: string;
   service: string;

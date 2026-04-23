@@ -16,6 +16,7 @@ import ObservationFeed from '../components/ObservationFeed';
 import DetectionAlerts from '../components/DetectionAlerts';
 import HealingActionsPanel from '../components/HealingActions';
 import AICopilot from '../components/AICopilot';
+import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
 
 const API = import.meta.env.VITE_API_URL || '';
@@ -26,6 +27,7 @@ export default function HealingDashboard() {
     logs, 
     anomalies, 
     healingActions, 
+    incidentReports,
     stats, 
     isLive, 
     setIsLive, 
@@ -363,6 +365,9 @@ export default function HealingDashboard() {
           </div>
           <div data-aos="fade-up" data-aos-delay="300">
             <AICopilot anomalies={anomalies} />
+          </div>
+          <div data-aos="fade-up" data-aos-delay="400" style={{ gridColumn: '1 / -1' }}>
+            <IncidentReportsPanel reports={incidentReports} />
           </div>
         </div>
       </main>

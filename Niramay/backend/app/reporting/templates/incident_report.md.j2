@@ -1,0 +1,53 @@
+# 🚨 Incident Report — INR-{{ detection_id_short }}
+
+## Summary
+
+| Field | Value |
+|-------|-------|
+| **Severity** | {{ severity | upper }} |
+| **Anomaly Score** | {{ anomaly_score }} / 1.00 |
+| **Service** | {{ service }} |
+| **Endpoint** | {{ endpoint }} |
+| **Method** | {{ method }} |
+| **Status Code** | {{ status_code }} |
+| **Response Time** | {{ response_time_ms }}ms |
+| **Detected At** | {{ timestamp }} |
+
+---
+
+## Root Cause Analysis
+
+**Analysis Type:** {{ analysis_type_label }}
+{% if confidence is not none %}**Confidence:** {{ confidence_pct }}%{% endif %}
+
+{{ root_cause }}
+
+---
+
+## Healing Action
+
+| Field | Value |
+|-------|-------|
+| **Action** | {{ healing_action }} |
+| **Status** | {{ healing_status }} |
+| **Verification** | {{ verification_status }} |
+{% if healing_message %}| **Message** | {{ healing_message }} |{% endif %}
+
+---
+
+## Detection Signals
+
+**Engines Triggered:** {{ engines_triggered | join(', ') }}
+
+{% for reason in anomaly_reasons %}- {{ reason | replace('_', ' ') | title }}
+{% endfor %}
+{% if requires_llm %}
+> ⚠️ This anomaly was escalated to AI-based root cause analysis due to signal complexity.
+{% endif %}
+
+---
+
+## Timeline
+
+{% for event in timeline %}- **{{ event.time }}** — {{ event.description }}
+{% endfor %}
