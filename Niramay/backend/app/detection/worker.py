@@ -8,8 +8,7 @@ runs the detection service, and handles all storage dispatch:
         → Redis: observation:anomalies (capped 1000)
         → Redis: anomaly_stats:type + anomaly_stats:endpoint
         → OpenSearch: b-anomaly-records
-        → Causal Engine (if requires_llm)
-        → Healing Engine → Redis: healing:actions + OpenSearch: b-healing-records
+        → Redis: analyser:pending (queue for Analyser Worker)
 
     If healthy:
         → OpenSearch: b-healthy-logs (lightweight record)
@@ -21,32 +20,41 @@ import json
 import structlog
 from app.core.redis_client import get_async_redis
 from app.detection.index import detection_service
-from app.healing.index import healing_service
+# from app.healing.index import healing_service
+# HEALING COMMENTED OUT: Component A healing actions
+# not yet finalized. Uncomment when Component A
+# design is complete.
 from app.ingestion.opensearch_client import opensearch_writer
-from app.reporting.report_generator import generate_incident_report
+# from app.reporting.report_generator import generate_incident_report
+# REPORT GENERATION MOVED: Now handled by Analyser Worker.
 
 logger = structlog.get_logger(__name__)
 
 # Redis Key Ownership for this worker:
 # WRITES:
 #   observation:anomalies  - anomaly feed for API
-#   healing:actions        - healing results for API
 #   anomaly_stats:type     - stats hash for API
 #   anomaly_stats:endpoint - stats hash for API
-#   escalation:alerts      - escalation feed for API
+#   analyser:pending       - queue to Analyser Worker
 #
 # DOES NOT WRITE (written by RabbitMQ consumer):
 #   observation:logs       - raw log feed for API
 #   observation:pending_detection - detection queue
 #
-# This separation is intentional. The consumer owns
-# log ingestion. The worker owns detection results.
+# DOES NOT WRITE (written by verification worker):
+#   escalation:alerts      - escalation feed for API
+#
+# DOES NOT WRITE (written by Dispatcher Worker):
+#   dispatcher:pending     - queue to Dispatcher Worker
+#   healing:actions        - updated by Dispatcher Worker
+#
+# This separation is intentional. Each worker owns
+# its own write responsibilities.
 
 # Redis key names
 PENDING_DETECTION_KEY = "observation:pending_detection"
 ANOMALIES_KEY = "observation:anomalies"
-HEALING_KEY = "healing:actions"
-INCIDENT_REPORTS_KEY = "incident:reports"
+ANALYSER_QUEUE_KEY = "analyser:pending"
 STATS_TYPE_KEY = "anomaly_stats:type"
 STATS_ENDPOINT_KEY = "anomaly_stats:endpoint"
 LIST_CAP = 1000
@@ -95,36 +103,40 @@ async def _handle_anomaly(r, detection_result: dict):
     Handle a detected anomaly:
         1. Push to Redis anomalies list
         2. Update Redis stats
-        3. Write to OpenSearch
-        4. Run causal engine (if needed)
-        5. Run healing engine
-        6. Store healing result
+        3. Write to OpenSearch b-anomaly-records
+        4. Push to Analyser Worker queue
     """
-    # ── 1. Run Causal Engine if needed ──
-    ai_analysis = None
-    if detection_result.get("requires_llm"):
-        try:
-            from app.causal_engine.client import analyze_anomaly
-            ai_analysis = await analyze_anomaly(detection_result)
-            detection_result["ai_analysis"] = ai_analysis
-        except Exception as e:
-            logger.warning("Causal engine failed", error=str(e))
-            detection_result["ai_analysis"] = {
-                "root_cause": "Analysis unavailable",
-                "confidence": 0.0,
-                "suggested_action": "none",
-                "skipped": True,
-                "reason": str(e),
-            }
+    # ── 1. Causal Engine moved to Analyser Worker ──
+    # ai_analysis = None
+    # if detection_result.get("requires_llm"):
+    #     try:
+    #         from app.causal_engine.client import analyze_anomaly
+    #         ai_analysis = await analyze_anomaly(detection_result)
+    #         detection_result["ai_analysis"] = ai_analysis
+    #     except Exception as e:
+    #         logger.warning("Causal engine failed", error=str(e))
+    #         detection_result["ai_analysis"] = {
+    #             "root_cause": "Analysis unavailable",
+    #             "confidence": 0.0,
+    #             "suggested_action": "none",
+    #             "skipped": True,
+    #             "reason": str(e),
+    #         }
+    ai_analysis = None  # will be set by Analyser Worker
 
-    # ── 2. Run Healing Engine ──
-    healing_result = None
-    try:
-        action_key = healing_service.decide_healing_action(detection_result)
-        healing_result = await healing_service.execute_healing(action_key, detection_result)
-        detection_result["healing"] = healing_result
-    except Exception as e:
-        logger.error("Healing engine failed", error=str(e))
+    # ── 2. Healing Engine (COMMENTED OUT) ──
+    # Component A healing actions not yet finalized.
+    # Preserved for when Component A design is complete.
+    # healing_result = None
+    # try:
+    #     action_key = healing_service.decide_healing_action(
+    #         detection_result)
+    #     healing_result = await healing_service.execute_healing(
+    #         action_key, detection_result)
+    #     detection_result["healing"] = healing_result
+    # except Exception as e:
+    #     logger.error("Healing engine failed", error=str(e))
+    healing_result = None  # placeholder until A is designed
 
     # ── 3. Push to Redis: observation:anomalies ──
     try:
@@ -150,50 +162,43 @@ async def _handle_anomaly(r, detection_result: dict):
     except Exception as e:
         logger.warning("Failed to write anomaly to OpenSearch", error=str(e))
 
-    # ── 6. Write healing result to Redis + OpenSearch ──
-    if healing_result and healing_result.get("status") != "skipped":
-        try:
-            healing_json = json.dumps(healing_result)
-            await r.lpush(HEALING_KEY, healing_json)
-            await r.ltrim(HEALING_KEY, 0, LIST_CAP - 1)
-        except Exception as e:
-            logger.warning("Failed to push healing to Redis", error=str(e))
-
-        try:
-            healing_record = {
-                **healing_result,
-                "service": detection_result.get("service"),
-                "endpoint": detection_result.get("endpoint"),
-                "detection_id": detection_result.get("detection_id"),
-            }
-            opensearch_writer.write_healing_record(healing_record)
-        except Exception as e:
-            logger.warning("Failed to write healing to OpenSearch", error=str(e))
-
-    # ── 7. Generate and Store Incident Report ──
+    # ── 6. Push to Analyser Worker queue ──
     try:
-        # Default empty dict if no AI analysis was performed
-        ai_data = ai_analysis or {}
-        
-        # Default skipped healing if it failed or didn't run
-        heal_data = healing_result or {
-            "healing_action": "none",
-            "status": "skipped",
-            "message": "Healing engine failed or was bypassed."
-        }
-        
-        incident_report = generate_incident_report(detection_result, ai_data, heal_data)
-        
-        # Store in Redis for real-time frontend feed
-        report_json = json.dumps(incident_report)
-        await r.lpush(INCIDENT_REPORTS_KEY, report_json)
-        await r.ltrim(INCIDENT_REPORTS_KEY, 0, LIST_CAP - 1)
-        
-        # Store in OpenSearch for history
-        opensearch_writer.write_incident_report(incident_report)
-        
+        await r.rpush(
+            ANALYSER_QUEUE_KEY,
+            json.dumps(detection_result)
+        )
     except Exception as e:
-        logger.error("Failed to generate/store incident report", error=str(e))
+        logger.warning(
+            "Failed to push to Analyser Worker queue",
+            error=str(e)
+        )
+
+    # ── 7. Healing result storage (COMMENTED OUT) ──
+    # Will be re-enabled when Component A is designed.
+    # if healing_result and healing_result.get(
+    #     "status") != "skipped":
+    #     try:
+    #         healing_json = json.dumps(healing_result)
+    #         await r.lpush(HEALING_KEY, healing_json)
+    #         await r.ltrim(HEALING_KEY, 0, LIST_CAP - 1)
+    #     except Exception as e:
+    #         logger.warning("Failed to push healing to Redis", error=str(e))
+    #
+    #     try:
+    #         healing_record = {
+    #             **healing_result,
+    #             "service": detection_result.get("service"),
+    #             "endpoint": detection_result.get("endpoint"),
+    #             "detection_id": detection_result.get("detection_id"),
+    #         }
+    #         opensearch_writer.write_healing_record(healing_record)
+    #     except Exception as e:
+    #         logger.warning("Failed to write healing to OpenSearch", error=str(e))
+
+    # ── 8. Report generation moved to Analyser Worker ──
+    # Incident reports are now generated by the
+    # Analyser Worker after causal analysis completes.
 
 
 def _handle_healthy(detection_result: dict):

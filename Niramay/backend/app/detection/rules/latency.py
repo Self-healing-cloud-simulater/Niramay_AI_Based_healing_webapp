@@ -1,3 +1,5 @@
+# DEPRECATED: Logic moved to detection/engines/
+# Safe to delete once confirmed unused.
 from typing import Dict, Any
 from .base import BaseRule, RuleResult
 from app.core.config import settings

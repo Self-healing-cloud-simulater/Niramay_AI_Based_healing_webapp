@@ -155,14 +155,40 @@ async def verification_worker_loop():
                         opensearch_writer.update_incident_report_status(detection_id, "ESCALATED")
                         del pending_verifications[detection_id]
                     else:
-                        # Retry with escalated healing
+                        # Retry: push the original detection back
+                        # to Dispatcher Worker queue with incremented
+                        # retry context so Dispatcher Worker
+                        # re-dispatches to Component A
                         logger.warning(
                             "Healing failed, retrying",
                             detection_id=detection_id,
                             attempt=pv["attempts"],
                         )
-                        # The next detection cycle will pick this up naturally
-                        opensearch_writer.update_incident_report_status(detection_id, "FAILED_RETRYING")
+                        try:
+                            retry_payload = {
+                                "detection_id": detection_id,
+                                "service": pv["service"],
+                                "endpoint": pv["endpoint"],
+                                "failure_tag": pv["failure_tag"],
+                                "retry_count": pv["attempts"],
+                                "anomaly_reasons": action.get(
+                                    "anomaly_reasons", []),
+                                "severity": action.get(
+                                    "severity", "medium"),
+                                "timestamp": action.get("timestamp"),
+                                "is_retry": True,
+                            }
+                            await r.rpush(
+                                "dispatcher:pending",
+                                json.dumps(retry_payload)
+                            )
+                        except Exception as e:
+                            logger.error(
+                                "Failed to push retry to Dispatcher Worker",
+                                error=str(e)
+                            )
+                        opensearch_writer.update_incident_report_status(
+                            detection_id, "FAILED_RETRYING")
 
             await asyncio.sleep(15)
 
