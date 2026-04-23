@@ -164,6 +164,16 @@ async def startup_event():
     from app.detection.worker import start_detection_worker
     start_detection_worker()
 
+    # ── Start Analyser Worker ──
+    from app.analyser.worker import start_analyser_worker
+    start_analyser_worker()
+    logger.info("Analyser Worker started")
+
+    # ── Start Dispatcher Worker ──
+    from app.dispatcher.worker import start_dispatcher_worker
+    start_dispatcher_worker()
+    logger.info("Dispatcher Worker started")
+
     # ── Start Traffic Generator (demo mode) ──
     if settings.TRAFFIC_GENERATOR_ENABLED:
         from app.simulation.traffic_generator import start_traffic_generator

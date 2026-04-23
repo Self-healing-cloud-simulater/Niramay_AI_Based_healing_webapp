@@ -1,3 +1,5 @@
+# DEPRECATED: Logic moved to detection/engines/
+# Safe to delete once confirmed unused.
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from pydantic import BaseModel

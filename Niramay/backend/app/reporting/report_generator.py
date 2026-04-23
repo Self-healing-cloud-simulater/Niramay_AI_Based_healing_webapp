@@ -83,25 +83,76 @@ def generate_human_report(detection_result: Dict[str, Any], ai_analysis: Dict[st
         logger.error("Failed to generate human report", error=str(e))
         return f"# 🚨 Incident Report\nGeneration failed: {str(e)}"
 
-def generate_machine_alert(detection_result: Dict[str, Any], ai_analysis: Dict[str, Any], healing_result: Dict[str, Any]) -> Dict[str, Any]:
-    """Generates a structured JSON alert object."""
+def generate_machine_alert(
+    detection_result: Dict[str, Any],
+    ai_analysis: Dict[str, Any],
+    healing_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Generate the structured machine-readable alert sent to
+    Component A.
+
+    Contract:
+        - recommended_action: what the Analyser suggests
+          (from Causal Engine, validated vocabulary)
+        - healing_action_taken: what Component A actually
+          executes (filled in later by Dispatcher)
+        - healing_status: pending -> in_progress ->
+          success | failed (filled in by Dispatcher/A)
+        - verification_status: filled in by Verification Worker
+    """
     return {
+        # Identity
         "alert_id": str(uuid.uuid4()),
         "detection_id": detection_result.get("detection_id"),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "severity": detection_result.get("severity"),
-        "anomaly_score": detection_result.get("anomaly_score"),
-        "service": detection_result.get("service"),
-        "endpoint": detection_result.get("endpoint"),
+
+        # Diagnosis (from Causal Engine)
         "root_cause": ai_analysis.get("root_cause"),
         "confidence": ai_analysis.get("confidence"),
-        "healing_action": healing_result.get("healing_action"),
-        "healing_status": healing_result.get("status"),
-        "verification_status": healing_result.get("verification_status", "PENDING"),
-        "anomaly_reasons": detection_result.get("anomaly_reasons", []),
-        "engines_triggered": detection_result.get("engines_triggered", []),
+        "analysis_type": ai_analysis.get(
+            "analysis_type", "unknown"
+        ),
+
+        # Target
+        "service": detection_result.get("service"),
+        "endpoint": detection_result.get("endpoint"),
+        "severity": detection_result.get("severity"),
+        "anomaly_score": detection_result.get("anomaly_score"),
+
+        # Recommendation (from Causal Engine, validated)
+        "recommended_action": ai_analysis.get(
+            "suggested_action", "none"
+        ),
+
+        # Context for Component A
+        "anomaly_reasons": detection_result.get(
+            "anomaly_reasons", []
+        ),
+        "engines_triggered": detection_result.get(
+            "engines_triggered", []
+        ),
+        "failure_tag": detection_result.get(
+            "failure_tag", "none"
+        ),
+        "status_code": detection_result.get("status_code"),
+        "response_time_ms": detection_result.get(
+            "response_time_ms"
+        ),
+
+        # Execution status (filled in by Dispatcher/A later)
+        "healing_action_taken": healing_result.get(
+            "healing_action"
+        ) if healing_result.get("status") != "pending" else None,
+        "healing_status": healing_result.get(
+            "status", "pending"
+        ),
+        "verification_status": healing_result.get(
+            "verification_status", "PENDING"
+        ),
+
+        # Escalation flag
         "requires_escalation": False,
-        "analysis_type": ai_analysis.get("analysis_type", "unknown")
     }
 
 def generate_incident_report(detection_result: Dict[str, Any], ai_analysis: Dict[str, Any], healing_result: Dict[str, Any]) -> Dict[str, Any]:
