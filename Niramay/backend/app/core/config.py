@@ -28,16 +28,16 @@ class Settings(BaseSettings):
     # RabbitMQ (Stage 1 — log ingestion from Component C)
     RABBITMQ_HOST: str = "localhost"
     RABBITMQ_PORT: int = 5672
-    RABBITMQ_USER: str = "guest"
-    RABBITMQ_PASSWORD: str = "guest"
+    RABBITMQ_USER: Optional[str] = None
+    RABBITMQ_PASSWORD: Optional[str] = None
     RABBITMQ_QUEUE: str = "component-c-logs"
     RABBITMQ_QUEUE_NAME: str = "component-c-logs"  # alias used by publisher/consumer
 
     # OpenSearch (permanent storage)
     OPENSEARCH_HOST: str = "localhost"
     OPENSEARCH_PORT: int = 9200
-    OPENSEARCH_USER: str = "admin"
-    OPENSEARCH_PASSWORD: str = "admin"
+    OPENSEARCH_USER: Optional[str] = None
+    OPENSEARCH_PASSWORD: Optional[str] = None
 
 
     @property

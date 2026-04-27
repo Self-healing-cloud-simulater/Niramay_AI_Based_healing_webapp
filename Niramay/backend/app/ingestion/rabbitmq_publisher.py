@@ -39,10 +39,13 @@ class RabbitMQPublisher:
     def _connect(self):
         """Establish connection to RabbitMQ. Called lazily."""
         try:
-            credentials = pika.PlainCredentials(
-                settings.RABBITMQ_USER,
-                settings.RABBITMQ_PASSWORD,
-            )
+            credentials = None
+            if settings.RABBITMQ_USER and settings.RABBITMQ_PASSWORD:
+                credentials = pika.PlainCredentials(
+                    settings.RABBITMQ_USER,
+                    settings.RABBITMQ_PASSWORD,
+                )
+
             params = pika.ConnectionParameters(
                 host=settings.RABBITMQ_HOST,
                 port=settings.RABBITMQ_PORT,
