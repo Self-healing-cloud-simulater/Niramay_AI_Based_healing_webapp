@@ -83,10 +83,13 @@ def _consumer_loop():
 
     while True:
         try:
-            credentials = pika.PlainCredentials(
-                settings.RABBITMQ_USER,
-                settings.RABBITMQ_PASSWORD,
-            )
+            credentials = None
+            if settings.RABBITMQ_USER and settings.RABBITMQ_PASSWORD:
+                credentials = pika.PlainCredentials(
+                    settings.RABBITMQ_USER,
+                    settings.RABBITMQ_PASSWORD,
+                )
+
             params = pika.ConnectionParameters(
                 host=settings.RABBITMQ_HOST,
                 port=settings.RABBITMQ_PORT,
