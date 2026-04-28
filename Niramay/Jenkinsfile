@@ -22,15 +22,15 @@ pipeline {
         }
 
         stage('Install Dependencies') {
-            steps {
-                echo "📦 Installing Python dependencies..."
-                sh '''
-                python3 -m pip install --upgrade pip
-                pip3 install -r Niramay/backend/tests/requirements.txt
-                pip3 install pytest
-                '''
-            }
-        }
+    steps {
+        echo "📦 Installing Python dependencies..."
+        sh '''
+        pip3 install --break-system-packages --upgrade pip
+        pip3 install --break-system-packages pytest requests
+        pip3 install --break-system-packages -r Niramay/backend/tests/requirements.txt
+        '''
+    }
+}
 
         stage('Run Niramay Tests') {
             steps {
