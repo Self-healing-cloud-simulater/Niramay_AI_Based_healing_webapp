@@ -19,6 +19,7 @@ import time
 import threading
 import structlog
 import pika
+from datetime import datetime, timezone
 from app.core.config import settings
 from app.core.redis_client import get_sync_redis
 from app.ingestion.normalizer import normalize_log
@@ -43,6 +44,20 @@ def _on_message(channel, method_frame, header_frame, body):
     except Exception:
         raw_message = str(body)
 
+    # ── Step 0: Write raw message to OpenSearch before normalization ──
+    # This stores exactly what CRAVE sent for debugging
+    try:
+        opensearch_writer.write_raw_log(
+            raw_message=raw_message,
+            queue="component-c-logs"
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to write raw log to OpenSearch",
+            error=str(e)
+        )
+    # Continue with normalization regardless
+
     # ── Step 1: Normalize ──
     normalized = normalize_log(raw_message)
 
@@ -63,6 +78,20 @@ def _on_message(channel, method_frame, header_frame, body):
 
         # Push to observation:pending_detection (detection worker queue)
         r.rpush(REDIS_PENDING_DETECTION, log_json)
+
+        # Update pipeline stage key (never block on failure)
+        try:
+            r.set(
+                settings.PIPELINE_STAGE_KEY,
+                json.dumps({
+                    "stage": "stage_1_complete",
+                    "timestamp": datetime.now(
+                        timezone.utc).isoformat(),
+                    "message": "Log ingested and normalized"
+                })
+            )
+        except Exception:
+            pass  # Never block pipeline for UI updates
 
     except Exception as e:
         logger.warning("Failed to push to Redis", error=str(e))

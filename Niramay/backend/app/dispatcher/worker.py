@@ -1,22 +1,21 @@
 """
-Dispatcher Worker: Alert Dispatch and Verification
+Dispatcher Worker: Alert Dispatch and Healing Execution
 
 Receives machine alerts from the Analyser Worker via
 dispatcher:pending queue and handles:
-    1. Sending alert to Component A (placeholder)
-    2. Receiving feedback from Component A (placeholder)
-    3. Triggering verification worker
-    4. Escalation if verification fails
-
-STATUS: Skeleton only. Component A communication is
-a placeholder demo function until Component A is
-fully designed and integrated.
+    1. Executing healing via Component A (HealingActionExecutor)
+    2. Storing healing record to Redis healing:actions
+    3. Updating pipeline stage for UI progress tracking
 """
 import asyncio
 import json
 import structlog
 from datetime import datetime, timezone
+from app.core.config import settings
 from app.core.redis_client import get_async_redis
+from app.healing_action_executor.executor import (
+    healing_executor
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +30,7 @@ async def dispatcher_worker_loop():
     Pops machine alerts from dispatcher:pending queue
     and dispatches to Component A.
     """
-    logger.info("Dispatcher Worker started (skeleton mode)")
+    logger.info("Dispatcher Worker started")
     r = await get_async_redis()
 
     while True:
@@ -60,15 +59,34 @@ async def dispatcher_worker_loop():
             await asyncio.sleep(2)
 
 
+async def _execute_healing(
+    machine_alert: dict
+) -> dict:
+    """
+    Call the Healing Action Executor (Component A).
+    Returns the healing result dict.
+    """
+    return await healing_executor.execute(
+        machine_alert
+    )
+
+
+# Keep _send_to_component_a as an alias so existing
+# tests continue to pass while we migrate.
+async def _send_to_component_a(
+    machine_alert: dict
+) -> dict:
+    """Alias for _execute_healing — kept for test compat."""
+    return await _execute_healing(machine_alert)
+
+
 async def _handle_dispatcher(r, machine_alert: dict):
     """
-    Core Dispatcher Worker logic (skeleton).
+    Core Dispatcher Worker logic.
 
-    TODO when Component A is designed:
-        - Replace _send_to_component_a() with real
-          API call or queue publish
-        - Implement real feedback receiver
-        - Connect to verification worker
+    1. Execute healing via Component A
+    2. Store healing record to Redis healing:actions
+    3. Update pipeline stage key
     """
     alert_id = machine_alert.get("alert_id", "unknown")
     detection_id = machine_alert.get("detection_id", "unknown")
@@ -79,24 +97,37 @@ async def _handle_dispatcher(r, machine_alert: dict):
         severity=machine_alert.get("severity")
     )
 
-    # -- 1. Send alert to Component A (placeholder) --
-    healing_result = await _send_to_component_a(machine_alert)
+    # -- 1. Execute healing via Component A --
+    healing_result = await _execute_healing(machine_alert)
 
     # -- 2. Store healing result to Redis healing:actions --
-    # This feeds the verification worker which reads
-    # from healing:actions to verify outcomes.
     try:
         healing_record = {
-            **healing_result,
+            "healing_action": healing_result.get(
+                "healing_action"),
+            "status": healing_result.get("status"),
+            "message": healing_result.get("message"),
+            "error": healing_result.get("error"),
+            "scenarios_disabled": healing_result.get(
+                "scenarios_disabled", []),
+            "container_restarted": healing_result.get(
+                "container_restarted"),
+            "heal_endpoint_called": healing_result.get(
+                "heal_endpoint_called", False),
+            "executed_at": healing_result.get("executed_at"),
             "detection_id": detection_id,
             "alert_id": alert_id,
             "service": machine_alert.get("service"),
             "endpoint": machine_alert.get("endpoint"),
             "failure_tag": machine_alert.get(
                 "failure_tag", "none"),
+            "recommended_action": machine_alert.get(
+                "recommended_action"),
             "timestamp": datetime.now(
                 timezone.utc).isoformat(),
             "verification_status": "PENDING",
+            "retry_count": machine_alert.get(
+                "retry_count", 0),
         }
         await r.lpush(
             HEALING_KEY,
@@ -113,43 +144,24 @@ async def _handle_dispatcher(r, machine_alert: dict):
             error=str(e)
         )
 
-
-async def _send_to_component_a(
-    machine_alert: dict
-) -> dict:
-    """
-    Placeholder function representing Component A
-    communication.
-
-    REPLACE THIS when Component A is designed.
-    Currently returns a simulated pending response
-    so the verification worker has something to verify.
-
-    When Component A is ready this function will:
-        - Make an HTTP call to Component A API, OR
-        - Publish to a shared message queue, OR
-        - Call Component A's healing function directly
-          (since A and B are in the same application)
-    """
-    logger.info(
-        "Dispatcher Worker: sending alert to Component A "
-        "(placeholder)",
-        alert_id=machine_alert.get("alert_id"),
-        recommended_action=machine_alert.get(
-            "healing_action", "unknown")
-    )
-
-    # Simulate Component A receiving and acknowledging
-    return {
-        "healing_action": machine_alert.get(
-            "healing_action", "none"),
-        "status": "pending",
-        "message": (
-            "Component A placeholder: alert received. "
-            "Actual healing not yet implemented."
-        ),
-        "verification_status": "PENDING",
-    }
+    # -- 3. Update pipeline stage --
+    try:
+        await r.set(
+            settings.PIPELINE_STAGE_KEY,
+            json.dumps({
+                "stage": "stage_4_healing_complete",
+                "timestamp": datetime.now(
+                    timezone.utc).isoformat(),
+                "message": "Healing executed, "
+                           "verification starting",
+                "healing_action": healing_result.get(
+                    "healing_action"),
+                "status": healing_result.get("status"),
+                "service": machine_alert.get("service"),
+            })
+        )
+    except Exception:
+        pass
 
 
 def start_dispatcher_worker():

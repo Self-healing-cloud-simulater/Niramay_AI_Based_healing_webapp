@@ -17,6 +17,8 @@ The Analyser Worker understands and reports.
 import asyncio
 import json
 import structlog
+from datetime import datetime, timezone
+from app.core.config import settings
 from app.core.redis_client import get_async_redis
 from app.causal_engine.client import analyze_anomaly
 from app.reporting.report_generator import generate_incident_report
@@ -76,6 +78,21 @@ async def _handle_analyser(r, detection_result: dict):
         4. Push machine alert to Dispatcher Worker queue
     """
     detection_id = detection_result.get("detection_id", "unknown")
+
+    # -- 0. Update pipeline stage: causal engine starting --
+    try:
+        await r.set(
+            settings.PIPELINE_STAGE_KEY,
+            json.dumps({
+                "stage": "stage_3_causal_engine_running",
+                "timestamp": datetime.now(
+                    timezone.utc).isoformat(),
+                "message": "AI causal analysis running",
+                "detection_id": detection_id,
+            })
+        )
+    except Exception:
+        pass
 
     # -- 1. Run Causal Engine --
     # Always runs. Uses LLM if requires_llm is True,
@@ -162,8 +179,6 @@ async def _handle_analyser(r, detection_result: dict):
         )
 
     # -- 5. Push machine alert to Dispatcher Worker queue --
-    # Dispatcher Worker will send this to Component A.
-    # Currently a placeholder until Dispatcher Worker is built.
     try:
         machine_alert = incident_report.get("machine_alert", {})
         if machine_alert:
@@ -183,6 +198,25 @@ async def _handle_analyser(r, detection_result: dict):
             "Dispatcher Worker queue",
             error=str(e)
         )
+
+    # -- 6. Update pipeline stage: analysis complete --
+    try:
+        await r.set(
+            settings.PIPELINE_STAGE_KEY,
+            json.dumps({
+                "stage": "stage_3_complete",
+                "timestamp": datetime.now(
+                    timezone.utc).isoformat(),
+                "message": "Analysis complete, healing initiated",
+                "recommended_action": ai_analysis.get(
+                    "suggested_action"),
+                "service": detection_result.get("service"),
+                "failure_tag": detection_result.get(
+                    "failure_tag", "none"),
+            })
+        )
+    except Exception:
+        pass
 
 
 def start_analyser_worker():
