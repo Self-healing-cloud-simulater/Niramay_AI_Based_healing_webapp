@@ -87,6 +87,12 @@ async def detection_worker_loop():
             # ── Run Detection (pure function — no side effects) ──
             detection_result = detection_service.detect_anomaly(log)
 
+            # Carry method forward from the source log.
+            # detect_anomaly does not include method in its output
+            # but the frontend AnomalyLog type expects it.
+            if "method" not in detection_result:
+                detection_result["method"] = log.get("method", "")
+
             if detection_result["is_anomaly"]:
                 await _handle_anomaly(r, detection_result)
             else:

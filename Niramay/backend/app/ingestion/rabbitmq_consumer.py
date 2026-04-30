@@ -32,6 +32,13 @@ REDIS_OBSERVATION_LOGS = "observation:logs"
 REDIS_PENDING_DETECTION = "observation:pending_detection"
 REDIS_LOGS_CAP = 1000
 
+# Stage-1 update throttle: only write the pipeline stage key
+# every N messages. Without this, stage_1_complete is written
+# on every log and drowns out stage_2/3/4 updates from
+# the detection and healing workers.
+_STAGE_UPDATE_INTERVAL = 10
+_log_count_since_stage_update = 0
+
 
 def _on_message(channel, method_frame, header_frame, body):
     """
@@ -79,19 +86,24 @@ def _on_message(channel, method_frame, header_frame, body):
         # Push to observation:pending_detection (detection worker queue)
         r.rpush(REDIS_PENDING_DETECTION, log_json)
 
-        # Update pipeline stage key (never block on failure)
-        try:
-            r.set(
-                settings.PIPELINE_STAGE_KEY,
-                json.dumps({
-                    "stage": "stage_1_complete",
-                    "timestamp": datetime.now(
-                        timezone.utc).isoformat(),
-                    "message": "Log ingested and normalized"
-                })
-            )
-        except Exception:
-            pass  # Never block pipeline for UI updates
+        # Update pipeline stage key every N logs to avoid drowning
+        # out stage_2/3/4 updates from detection/healing workers.
+        global _log_count_since_stage_update
+        _log_count_since_stage_update += 1
+        if _log_count_since_stage_update >= _STAGE_UPDATE_INTERVAL:
+            _log_count_since_stage_update = 0
+            try:
+                r.set(
+                    settings.PIPELINE_STAGE_KEY,
+                    json.dumps({
+                        "stage": "stage_1_complete",
+                        "timestamp": datetime.now(
+                            timezone.utc).isoformat(),
+                        "message": "Log ingested and normalized"
+                    })
+                )
+            except Exception:
+                pass  # Never block pipeline for UI updates
 
     except Exception as e:
         logger.warning("Failed to push to Redis", error=str(e))

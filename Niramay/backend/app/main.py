@@ -1,8 +1,7 @@
 """
 Niramay — FastAPI Application Entry Point
 Standalone application containing the unified Observation → Detection → Healing pipeline.
-
-Pipeline: Traffic Generator → Middleware → RabbitMQ → Normalizer → OpenSearch + Detection → Healing
+Monitors CRAVE and runs the detection → healing pipeline on CRAVE's logs only.
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,9 +9,7 @@ from fastapi.responses import JSONResponse
 import time
 
 from app.core.config import settings
-from app.simulation.failure_middleware import FailureSimulationMiddleware
 from app.core.logging import logger, log_request
-from app.observation.middleware import ObservationMiddleware
 from app.api.v1.endpoints import router as api_router
 
 # Create FastAPI application
@@ -25,10 +22,9 @@ app = FastAPI(
     Unified pipeline: **Observation → Detection → Healing**
 
     ### Pipeline Flow:
-    1. **Traffic** → Failure Middleware → Observation Middleware → RabbitMQ
-    2. **RabbitMQ Consumer** → Normalizer → OpenSearch + Redis
-    3. **Detection Worker** → 4 engines → Anomaly scoring
-    4. **Healing Engine** → Strategy execution → Verification
+    1. **CRAVE logs** → RabbitMQ → Normalizer → OpenSearch + Redis
+    2. **Detection Worker** → 4 engines → Anomaly scoring
+    3. **Healing Engine** → Strategy execution → Verification
 
     ### API Endpoints:
     - `GET /api/v1/observation/logs` — Real-time traffic logs (Redis)
@@ -37,7 +33,6 @@ app = FastAPI(
     - `GET /api/v1/detection/anomalies/history` — Historical anomalies (OpenSearch)
     - `GET /api/v1/healing/actions` — Healing actions (Redis)
     - `GET /api/v1/escalations` — Escalation alerts (Redis)
-    - `GET /api/v1/failure-simulator/*` — Control failure injection
     """,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -51,13 +46,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Add failure simulation middleware (before observation — injects failures)
-app.add_middleware(FailureSimulationMiddleware)
-
-# Add Observation Layer middleware (outermost — records all traffic)
-app.add_middleware(ObservationMiddleware)
-
 
 # Request logging middleware
 @app.middleware("http")
@@ -76,10 +64,8 @@ async def log_requests(request: Request, call_next):
     )
     return response
 
-
 # Include API router
 app.include_router(api_router, prefix="/api/v1")
-
 
 # Health check endpoint
 @app.get("/health")
@@ -90,7 +76,6 @@ async def health_check():
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
     }
-
 
 # Root endpoint
 @app.get("/")
@@ -108,10 +93,8 @@ async def root():
             "detection_history": "/api/v1/detection/anomalies/history",
             "healing": "/api/v1/healing/actions",
             "escalations": "/api/v1/escalations",
-            "failure_simulator": "/api/v1/failure-simulator/status",
         }
     }
-
 
 # Exception handler
 @app.exception_handler(Exception)
@@ -122,19 +105,11 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"error": "InternalServerError", "message": "An unexpected error occurred", "path": request.url.path}
     )
 
-
 # Startup event
 @app.on_event("startup")
 async def startup_event():
     """Initialize application on startup"""
     logger.info("Application starting", app_name=settings.APP_NAME, version=settings.APP_VERSION)
-
-    # ── Initialize RabbitMQ publisher ──
-    try:
-        from app.ingestion.rabbitmq_publisher import rabbitmq_publisher
-        logger.info("RabbitMQ publisher initialized")
-    except Exception as e:
-        logger.warning("RabbitMQ publisher init failed (non-fatal)", error=str(e))
 
     # ── Initialize OpenSearch indices ──
     try:
@@ -144,7 +119,7 @@ async def startup_event():
     except Exception as e:
         logger.warning("OpenSearch initialization failed (non-fatal)", error=str(e))
 
-    # ── Start RabbitMQ consumer (ingests logs from middleware + Component C) ──
+    # ── Start RabbitMQ consumer (ingests logs from CRAVE only) ──
     try:
         from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer
         start_rabbitmq_consumer()
@@ -174,26 +149,16 @@ async def startup_event():
     start_dispatcher_worker()
     logger.info("Dispatcher Worker started")
 
-    # ── Start Traffic Generator (demo mode) ──
-    if settings.TRAFFIC_GENERATOR_ENABLED:
-        from app.simulation.traffic_generator import start_traffic_generator
-        start_traffic_generator(interval_ms=settings.TRAFFIC_GENERATOR_INTERVAL_MS)
+   
 
     # ── Start Healing Verification Worker ──
     from app.healing.verification_worker import start_verification_worker
     start_verification_worker()
 
-    # ── Enable default failure scenarios for demo ──
-    from app.simulation.failure_config import failure_simulator
-    failure_simulator.enable_scenario("database_error")
-    logger.info("Enabled default failure scenarios for demo: database_error")
-
-
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Application shutting down")
-
 
 if __name__ == "__main__":
     import uvicorn

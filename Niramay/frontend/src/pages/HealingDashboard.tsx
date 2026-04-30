@@ -9,7 +9,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useTheme, createRipple, type ObservationLog, type AnomalyLog, type HealingAction } from '../designSystem';
-import { useNiramayData } from '../hooks/useNiramayData';
+import { useNiramayData, useCraveConnectionStatus, usePipelineStage } from '../hooks/useNiramayData';
 import StatCard from '../components/StatCard';
 import ThemeToggle from '../components/Toggle';
 import ObservationFeed from '../components/ObservationFeed';
@@ -20,23 +20,59 @@ import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
 import PipelineStageIndicator from '../components/PipelineStageIndicator';
 
-const API = import.meta.env.VITE_API_URL || '';
+// Empty string routes all requests through the Vite proxy (/api → niramay-backend:8000).
+// Never use VITE_API_URL here — the browser cannot resolve the docker container hostname.
+const API = '';
+
+type TriggerState = 'idle' | 'loading' | 'success' | 'error';
 
 export default function HealingDashboard() {
   const { isDark } = useTheme();
-  const { 
-    logs, 
-    anomalies, 
-    healingActions, 
+  const {
+    logs,
+    anomalies,
+    healingActions,
     incidentReports,
-    stats, 
-    isLive, 
-    setIsLive, 
-    lastRefresh, 
-    loading, 
+    stats,
+    isLive,
+    setIsLive,
+    lastRefresh,
+    loading,
     fetchData,
-    metrics 
+    metrics
   } = useNiramayData();
+
+  const craveConnected = useCraveConnectionStatus();
+  const pipelineStage = usePipelineStage(true);
+
+  const [triggerState, setTriggerState] = useState<TriggerState>('idle');
+  const [triggerMessage, setTriggerMessage] = useState('');
+  const [lastTriggered, setLastTriggered] = useState<{ scenario: string; at: string } | null>(null);
+
+  const triggerFailure = useCallback(async (scenario: string) => {
+    setTriggerState('loading');
+    setTriggerMessage('');
+    try {
+      const res = await fetch(`${API}/api/v1/demo/trigger-failure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenario }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTriggerState('success');
+        setTriggerMessage(`Failure injected — watch Niramay detect and heal`);
+        setLastTriggered({ scenario, at: new Date().toLocaleTimeString() });
+      } else {
+        setTriggerState('error');
+        setTriggerMessage(data.error || 'Failed to inject failure');
+      }
+    } catch (err: any) {
+      setTriggerState('error');
+      setTriggerMessage(err.message || 'Network error');
+    }
+    setTimeout(() => setTriggerState('idle'), 5000);
+  }, []);
 
   const [scrolled, setScrolled] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
@@ -126,6 +162,34 @@ export default function HealingDashboard() {
           alignItems: 'center',
           gap: 'var(--space-4)',
         }}>
+          {/* CRAVE connection status */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+            padding: '4px 14px',
+            borderRadius: 'var(--radius-full)',
+            background: craveConnected ? 'rgba(0,255,128,0.08)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${craveConnected ? 'var(--color-status-success)' : 'var(--color-border-default)'}`,
+          }}>
+            <div style={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: craveConnected ? 'var(--color-status-success)' : 'var(--color-text-tertiary)',
+              animation: craveConnected ? 'pulse 2s infinite' : 'none',
+            }} />
+            <span style={{
+              fontSize: 10,
+              color: craveConnected ? 'var(--color-status-success)' : 'var(--color-text-tertiary)',
+              letterSpacing: 'var(--tracking-wider)',
+              textTransform: 'uppercase',
+              fontWeight: 'var(--font-weight-medium)' as any,
+            }}>
+              {craveConnected ? 'CRAVE Connected' : 'Awaiting CRAVE'}
+            </span>
+          </div>
+
           {/* Live indicator */}
           <button
             id="live-toggle"
@@ -394,6 +458,111 @@ export default function HealingDashboard() {
           </div>
           <div data-aos="fade-up" data-aos-delay="400" style={{ gridColumn: '1 / -1' }}>
             <IncidentReportsPanel reports={incidentReports} />
+          </div>
+
+          {/* Demo Control Panel */}
+          <div data-aos="fade-up" data-aos-delay="500" style={{ gridColumn: '1 / -1' }}>
+            <div className="glass" style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)' }}>
+              <div style={{ marginBottom: 'var(--space-5)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-weight-medium)' as any, color: 'var(--color-text-primary)', marginBottom: 'var(--space-1)', letterSpacing: 'var(--tracking-tight)' }}>
+                    Demo Control
+                  </h3>
+                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
+                    Inject failure scenarios into CRAVE and watch Niramay detect and heal them
+                  </p>
+                </div>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
+                  padding: '4px 12px', borderRadius: 'var(--radius-full)',
+                  background: craveConnected ? 'rgba(0,255,128,0.08)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${craveConnected ? 'var(--color-status-success)' : 'var(--color-border-default)'}`,
+                }}>
+                  <div style={{
+                    width: 6, height: 6, borderRadius: '50%',
+                    background: craveConnected ? 'var(--color-status-success)' : 'var(--color-text-tertiary)',
+                    animation: craveConnected ? 'pulse 2s infinite' : 'none',
+                  }} />
+                  <span style={{ fontSize: 10, color: craveConnected ? 'var(--color-status-success)' : 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-wider)' }}>
+                    {craveConnected ? 'CRAVE Live' : 'Awaiting CRAVE'}
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-4)' }}>
+                <button
+                  onClick={() => triggerFailure('database_error')}
+                  disabled={triggerState === 'loading'}
+                  className="ripple-host"
+                  onMouseDown={(e) => createRipple(e)}
+                  style={{
+                    padding: 'var(--space-2) var(--space-5)',
+                    borderRadius: 'var(--radius-md)',
+                    background: triggerState === 'loading' ? 'var(--color-accent-tertiary)' : 'rgba(212,132,94,0.12)',
+                    border: '1px solid rgba(212,132,94,0.25)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: 'var(--text-xs)',
+                    cursor: triggerState === 'loading' ? 'wait' : 'pointer',
+                    fontWeight: 'var(--font-weight-medium)' as any,
+                    letterSpacing: 'var(--tracking-wide)',
+                    transition: 'all 180ms var(--ease-out-expo)',
+                  }}
+                >
+                  {triggerState === 'loading' ? 'Injecting…' : 'Trigger Database Failure'}
+                </button>
+                <button
+                  onClick={() => triggerFailure('rate_limit')}
+                  disabled={triggerState === 'loading'}
+                  className="ripple-host"
+                  onMouseDown={(e) => createRipple(e)}
+                  style={{
+                    padding: 'var(--space-2) var(--space-5)',
+                    borderRadius: 'var(--radius-md)',
+                    background: triggerState === 'loading' ? 'var(--color-accent-tertiary)' : 'rgba(212,132,94,0.12)',
+                    border: '1px solid rgba(212,132,94,0.25)',
+                    color: 'var(--color-text-primary)',
+                    fontSize: 'var(--text-xs)',
+                    cursor: triggerState === 'loading' ? 'wait' : 'pointer',
+                    fontWeight: 'var(--font-weight-medium)' as any,
+                    letterSpacing: 'var(--tracking-wide)',
+                    transition: 'all 180ms var(--ease-out-expo)',
+                  }}
+                >
+                  {triggerState === 'loading' ? 'Injecting…' : 'Trigger Rate Limit Failure'}
+                </button>
+              </div>
+
+              {triggerMessage && (
+                <p style={{
+                  fontSize: 'var(--text-xs)',
+                  color: triggerState === 'success' ? 'var(--color-status-success)' : 'var(--color-status-error)',
+                  marginBottom: 'var(--space-3)',
+                }}>
+                  {triggerMessage}
+                </p>
+              )}
+
+              {(lastTriggered || pipelineStage) && (
+                <div style={{ display: 'flex', gap: 'var(--space-6)', flexWrap: 'wrap', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-subtle)' }}>
+                  {lastTriggered && (
+                    <div>
+                      <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-wider)' }}>Last Injected</span>
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                        {lastTriggered.scenario} at {lastTriggered.at}
+                      </p>
+                    </div>
+                  )}
+                  {pipelineStage && (
+                    <div>
+                      <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-wider)' }}>Pipeline Stage</span>
+                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                        {pipelineStage.stage} — {pipelineStage.message}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>

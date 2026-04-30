@@ -9,7 +9,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import type { ObservationLog, AnomalyLog, HealingAction, SystemStats, EscalationAlert, IncidentReport } from '../designSystem';
 
-const API = import.meta.env.VITE_API_URL || '';
+// Empty string routes all requests through the Vite proxy (/api → niramay-backend:8000).
+// Never use VITE_API_URL here — the browser cannot resolve the docker container hostname.
+const API = '';
 
 export interface NiramayData {
   logs: ObservationLog[];
@@ -149,6 +151,36 @@ export function usePipelineStage(
     }, [enabled]);
 
     return stage;
+}
+
+
+/**
+ * useCraveConnectionStatus — Detects whether CRAVE is actively
+ * publishing logs by comparing total_log counts across polls.
+ * Returns true when the log count is increasing.
+ */
+export function useCraveConnectionStatus(): boolean {
+  const [connected, setConnected] = useState(false);
+  const lastCountRef = useRef(0);
+
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/v1/stats');
+        if (res.ok) {
+          const data = await res.json();
+          const count: number = data.total_logs || 0;
+          setConnected(count > lastCountRef.current);
+          lastCountRef.current = count;
+        }
+      } catch {}
+    };
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return connected;
 }
 
 
