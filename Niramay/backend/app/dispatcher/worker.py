@@ -84,6 +84,7 @@ async def _handle_dispatcher(r, machine_alert: dict):
     """
     Core Dispatcher Worker logic.
 
+    0. Check if healing is enabled
     1. Execute healing via Component A
     2. Store healing record to Redis healing:actions
     3. Update pipeline stage key
@@ -96,6 +97,47 @@ async def _handle_dispatcher(r, machine_alert: dict):
         alert_id=alert_id,
         severity=machine_alert.get("severity")
     )
+
+    # -- 0. Check if healing is enabled --
+    try:
+        healing_flag = await r.get("healing:enabled")
+        if healing_flag == "0":
+            logger.info(
+                "Dispatcher Worker: healing disabled, skipping",
+                alert_id=alert_id
+            )
+            # Store a skipped record so the frontend sees it
+            skipped_record = {
+                "healing_action": "healing_disabled",
+                "status": "skipped",
+                "message": "Healing is disabled via toggle",
+                "error": None,
+                "scenarios_disabled": [],
+                "container_restarted": None,
+                "heal_endpoint_called": False,
+                "executed_at": datetime.now(
+                    timezone.utc).isoformat(),
+                "detection_id": detection_id,
+                "alert_id": alert_id,
+                "service": machine_alert.get("service"),
+                "endpoint": machine_alert.get("endpoint"),
+                "failure_tag": machine_alert.get(
+                    "failure_tag", "none"),
+                "recommended_action": machine_alert.get(
+                    "recommended_action"),
+                "timestamp": datetime.now(
+                    timezone.utc).isoformat(),
+                "verification_status": "SKIPPED",
+                "retry_count": 0,
+            }
+            await r.lpush(
+                HEALING_KEY,
+                json.dumps(skipped_record)
+            )
+            await r.ltrim(HEALING_KEY, 0, LIST_CAP - 1)
+            return
+    except Exception:
+        pass  # If Redis check fails, proceed with healing
 
     # -- 1. Execute healing via Component A --
     healing_result = await _execute_healing(machine_alert)

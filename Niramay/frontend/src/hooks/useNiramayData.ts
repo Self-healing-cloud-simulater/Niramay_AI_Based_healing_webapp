@@ -2,7 +2,11 @@
  * useNiramayData — Shared data fetching hook for all Niramay pages.
  * Polls observation logs, anomaly data, healing actions, and escalations.
  *
- * Also provides useLogHistory and useAnomalyHistory for OpenSearch data.
+ * Uses server-side fingerprints to detect actual data changes and avoid
+ * phantom updates (re-rendering unchanged data with animations).
+ *
+ * Also provides useLogHistory, useAnomalyHistory, usePipelineStage,
+ * useCraveConnectionStatus, useConsumerControl, and useHealingToggle.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -46,6 +50,11 @@ export function useNiramayData(): NiramayData {
   const [loading, setLoading] = useState(true);
   const timerRef = useRef<ReturnType<typeof setInterval>>();
 
+  // Fingerprint refs — only update state when data actually changes
+  const logsFingerprintRef = useRef<string>('');
+  const anomaliesFingerprintRef = useRef<string>('');
+  const healingFingerprintRef = useRef<string>('');
+
   const fetchData = useCallback(async () => {
     try {
       const [a, b, c, d, e, f] = await Promise.allSettled([
@@ -56,16 +65,41 @@ export function useNiramayData(): NiramayData {
         axios.get(`${API}/api/v1/escalations?limit=20`),
         axios.get(`${API}/api/v1/incident/reports?limit=20`),
       ]);
-      
-      if (a.status === 'fulfilled' && Array.isArray(a.value.data)) {
-        setLogs(a.value.data);
+
+      // Logs — only update if fingerprint changed
+      if (a.status === 'fulfilled' && a.value.data) {
+        const resp = a.value.data;
+        // Handle both old (array) and new ({logs, fingerprint}) formats
+        if (Array.isArray(resp)) {
+          setLogs(resp);
+        } else if (resp.fingerprint && resp.fingerprint !== logsFingerprintRef.current) {
+          logsFingerprintRef.current = resp.fingerprint;
+          setLogs(resp.logs || []);
+        }
       }
-      if (b.status === 'fulfilled' && Array.isArray(b.value.data)) {
-        setAnomalies(b.value.data);
+
+      // Anomalies — only update if fingerprint changed
+      if (b.status === 'fulfilled' && b.value.data) {
+        const resp = b.value.data;
+        if (Array.isArray(resp)) {
+          setAnomalies(resp);
+        } else if (resp.fingerprint && resp.fingerprint !== anomaliesFingerprintRef.current) {
+          anomaliesFingerprintRef.current = resp.fingerprint;
+          setAnomalies(resp.anomalies || []);
+        }
       }
-      if (c.status === 'fulfilled' && Array.isArray(c.value.data)) {
-        setHealingActions(c.value.data);
+
+      // Healing actions — only update if fingerprint changed
+      if (c.status === 'fulfilled' && c.value.data) {
+        const resp = c.value.data;
+        if (Array.isArray(resp)) {
+          setHealingActions(resp);
+        } else if (resp.fingerprint && resp.fingerprint !== healingFingerprintRef.current) {
+          healingFingerprintRef.current = resp.fingerprint;
+          setHealingActions(resp.actions || []);
+        }
       }
+
       if (d.status === 'fulfilled' && d.value.data) {
         setStats(d.value.data);
       }
@@ -75,7 +109,7 @@ export function useNiramayData(): NiramayData {
       if (f.status === 'fulfilled' && Array.isArray(f.value.data)) {
         setIncidentReports(f.value.data);
       }
-      
+
       setLastRefresh(new Date());
       setLoading(false);
     } catch (err) {
@@ -126,6 +160,7 @@ export function usePipelineStage(
         stage: string;
         message: string;
         timestamp: string | null;
+        stale?: boolean;
         service?: string;
         severity?: string;
         failure_tag?: string;
@@ -142,7 +177,10 @@ export function usePipelineStage(
                 const res = await fetch(
                     "/api/v1/pipeline/stage"
                 );
-                if (res.ok) setStage(await res.json());
+                if (res.ok) {
+                    const data = await res.json();
+                    setStage(data);
+                }
             } catch {}
         };
         poll();
@@ -181,6 +219,150 @@ export function useCraveConnectionStatus(): boolean {
   }, []);
 
   return connected;
+}
+
+
+/**
+ * useConsumerControl — Provides consumer start/stop/status control
+ * and live consumer event log.
+ */
+export interface ConsumerStatus {
+  running: boolean;
+  connected: boolean;
+  messages_consumed: number;
+  last_message_at: string | null;
+  started_at: string | null;
+  error: string | null;
+  thread_alive: boolean;
+}
+
+export interface ConsumerEvent {
+  type: string;
+  message: string;
+  timestamp: string;
+  messages_consumed: number;
+}
+
+export function useConsumerControl() {
+  const [status, setStatus] = useState<ConsumerStatus>({
+    running: false,
+    connected: false,
+    messages_consumed: 0,
+    last_message_at: null,
+    started_at: null,
+    error: null,
+    thread_alive: false,
+  });
+  const [events, setEvents] = useState<ConsumerEvent[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/consumer/status');
+      if (res.ok) setStatus(await res.json());
+    } catch {}
+  }, []);
+
+  const refreshEvents = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/consumer/events?limit=50');
+      if (res.ok) setEvents(await res.json());
+    } catch {}
+  }, []);
+
+  const startConsumer = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/v1/consumer/start', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setStatus(data.status);
+      }
+    } catch (e) {
+      console.error('Failed to start consumer:', e);
+    }
+    setLoading(false);
+  }, []);
+
+  const stopConsumer = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/v1/consumer/stop', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        setStatus(data.status);
+      }
+    } catch (e) {
+      console.error('Failed to stop consumer:', e);
+    }
+    setLoading(false);
+  }, []);
+
+  // Poll status and events
+  useEffect(() => {
+    refreshStatus();
+    refreshEvents();
+    const interval = setInterval(() => {
+      refreshStatus();
+      refreshEvents();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [refreshStatus, refreshEvents]);
+
+  return {
+    status,
+    events,
+    loading,
+    startConsumer,
+    stopConsumer,
+    refreshStatus,
+    refreshEvents,
+  };
+}
+
+
+/**
+ * useHealingToggle — Controls whether healing actions are executed.
+ */
+export function useHealingToggle() {
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const refreshState = useCallback(async () => {
+    try {
+      const res = await fetch('/api/v1/healing/enabled');
+      if (res.ok) {
+        const data = await res.json();
+        setEnabled(data.enabled);
+      }
+    } catch {}
+  }, []);
+
+  const toggle = useCallback(async (newValue?: boolean) => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/v1/healing/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newValue ?? !enabled }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEnabled(data.enabled);
+      }
+    } catch (e) {
+      console.error('Failed to toggle healing:', e);
+    }
+    setLoading(false);
+  }, [enabled]);
+
+  useEffect(() => {
+    refreshState();
+    const interval = setInterval(refreshState, 5000);
+    return () => clearInterval(interval);
+  }, [refreshState]);
+
+  return { enabled, loading, toggle };
 }
 
 

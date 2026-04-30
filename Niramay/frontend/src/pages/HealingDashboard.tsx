@@ -7,15 +7,16 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useTheme, createRipple, type ObservationLog, type AnomalyLog, type HealingAction } from '../designSystem';
-import { useNiramayData, useCraveConnectionStatus, usePipelineStage } from '../hooks/useNiramayData';
+import { useNiramayData, usePipelineStage, useConsumerControl, useHealingToggle } from '../hooks/useNiramayData';
 import StatCard from '../components/StatCard';
 import ThemeToggle from '../components/Toggle';
 import ObservationFeed from '../components/ObservationFeed';
 import DetectionAlerts from '../components/DetectionAlerts';
 import HealingActionsPanel from '../components/HealingActions';
-import AICopilot from '../components/AICopilot';
+
 import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
 import PipelineStageIndicator from '../components/PipelineStageIndicator';
@@ -28,6 +29,7 @@ type TriggerState = 'idle' | 'loading' | 'success' | 'error';
 
 export default function HealingDashboard() {
   const { isDark } = useTheme();
+  const navigate = useNavigate();
   const {
     logs,
     anomalies,
@@ -42,8 +44,9 @@ export default function HealingDashboard() {
     metrics
   } = useNiramayData();
 
-  const craveConnected = useCraveConnectionStatus();
   const pipelineStage = usePipelineStage(true);
+  const consumer = useConsumerControl();
+  const healingToggle = useHealingToggle();
 
   const [triggerState, setTriggerState] = useState<TriggerState>('idle');
   const [triggerMessage, setTriggerMessage] = useState('');
@@ -160,35 +163,84 @@ export default function HealingDashboard() {
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 'var(--space-4)',
+          gap: 'var(--space-3)',
         }}>
-          {/* CRAVE connection status */}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            padding: '4px 14px',
-            borderRadius: 'var(--radius-full)',
-            background: craveConnected ? 'rgba(0,255,128,0.08)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${craveConnected ? 'var(--color-status-success)' : 'var(--color-border-default)'}`,
-          }}>
+          {/* Consumer toggle */}
+          <button
+            id="consumer-toggle"
+            onClick={() => consumer.status.running ? consumer.stopConsumer() : consumer.startConsumer()}
+            disabled={consumer.loading}
+            className="ripple-host"
+            onMouseDown={(e) => createRipple(e)}
+            aria-label={consumer.status.running ? 'Stop consumer' : 'Start consumer'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '4px 12px',
+              borderRadius: 'var(--radius-full)',
+              background: consumer.status.running ? 'rgba(45, 122, 79, 0.08)' : 'rgba(239,68,68,0.06)',
+              border: `1px solid ${consumer.status.running ? 'rgba(45,122,79,0.2)' : 'rgba(239,68,68,0.15)'}`,
+              cursor: consumer.loading ? 'wait' : 'pointer',
+              transition: 'all 180ms var(--ease-out-expo)',
+            }}
+          >
             <div style={{
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              background: craveConnected ? 'var(--color-status-success)' : 'var(--color-text-tertiary)',
-              animation: craveConnected ? 'pulse 2s infinite' : 'none',
+              width: 6, height: 6, borderRadius: '50%',
+              background: consumer.status.running ? 'var(--color-status-success)' : 'var(--color-status-error)',
+              animation: consumer.status.connected ? 'pulse 2s infinite' : 'none',
             }} />
             <span style={{
               fontSize: 10,
-              color: craveConnected ? 'var(--color-status-success)' : 'var(--color-text-tertiary)',
+              color: consumer.status.running ? 'var(--color-status-success)' : 'var(--color-status-error)',
               letterSpacing: 'var(--tracking-wider)',
               textTransform: 'uppercase',
               fontWeight: 'var(--font-weight-medium)' as any,
             }}>
-              {craveConnected ? 'CRAVE Connected' : 'Awaiting CRAVE'}
+              {consumer.loading ? '...' : consumer.status.running ? 'Consumer ON' : 'Consumer OFF'}
             </span>
-          </div>
+          </button>
+
+          {/* Healing toggle */}
+          <button
+            id="healing-toggle"
+            onClick={() => healingToggle.toggle()}
+            disabled={healingToggle.loading}
+            className="ripple-host"
+            onMouseDown={(e) => createRipple(e)}
+            aria-label={healingToggle.enabled ? 'Disable healing' : 'Enable healing'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '4px 12px',
+              borderRadius: 'var(--radius-full)',
+              background: healingToggle.enabled ? 'rgba(45, 122, 79, 0.08)' : 'rgba(239,68,68,0.06)',
+              border: `1px solid ${healingToggle.enabled ? 'rgba(45,122,79,0.2)' : 'rgba(239,68,68,0.15)'}`,
+              cursor: healingToggle.loading ? 'wait' : 'pointer',
+              transition: 'all 180ms var(--ease-out-expo)',
+            }}
+          >
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: healingToggle.enabled ? 'var(--color-status-success)' : 'var(--color-status-error)',
+            }} />
+            <span style={{
+              fontSize: 10,
+              color: healingToggle.enabled ? 'var(--color-status-success)' : 'var(--color-status-error)',
+              letterSpacing: 'var(--tracking-wider)',
+              textTransform: 'uppercase',
+              fontWeight: 'var(--font-weight-medium)' as any,
+            }}>
+              {healingToggle.enabled ? 'Healing ON' : 'Healing OFF'}
+            </span>
+          </button>
+
+          <div style={{ width: 1, height: 20, background: 'var(--color-border-subtle)' }} />
+
+          {/* Nav links */}
+          <button onClick={() => navigate('/')} className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}>Home</button>
+          <button onClick={() => navigate('/visualizer')} className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}>Live View</button>
 
           {/* Live indicator */}
           <button
@@ -249,28 +301,6 @@ export default function HealingDashboard() {
           }}>
             {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
-
-          {/* OpenSearch links */}
-          <a
-            href="http://localhost:5601/app/discover"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-icon"
-            title="View Raw Logs in OpenSearch"
-            style={{ textDecoration: 'none', fontSize: 10, padding: '4px 10px', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)' }}
-          >
-            Raw Logs →
-          </a>
-          <a
-            href="http://localhost:5601/app/management/opensearch-dashboards/indexPatterns"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-icon"
-            title="View All Indices"
-            style={{ textDecoration: 'none', fontSize: 10, padding: '4px 10px', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)' }}
-          >
-            Indices →
-          </a>
 
           {/* Theme toggle */}
           <ThemeToggle />
@@ -450,119 +480,11 @@ export default function HealingDashboard() {
           <div data-aos="fade-up" data-aos-delay="100">
             <DetectionAlerts anomalies={anomalies} stats={stats} />
           </div>
-          <div data-aos="fade-up" data-aos-delay="200">
+          <div data-aos="fade-up" data-aos-delay="200" style={{ gridColumn: '1 / -1' }}>
             <HealingActionsPanel actions={healingActions} />
-          </div>
-          <div data-aos="fade-up" data-aos-delay="300">
-            <AICopilot anomalies={anomalies} />
           </div>
           <div data-aos="fade-up" data-aos-delay="400" style={{ gridColumn: '1 / -1' }}>
             <IncidentReportsPanel reports={incidentReports} />
-          </div>
-
-          {/* Demo Control Panel */}
-          <div data-aos="fade-up" data-aos-delay="500" style={{ gridColumn: '1 / -1' }}>
-            <div className="glass" style={{ padding: 'var(--space-6)', borderRadius: 'var(--radius-xl)' }}>
-              <div style={{ marginBottom: 'var(--space-5)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <h3 style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-weight-medium)' as any, color: 'var(--color-text-primary)', marginBottom: 'var(--space-1)', letterSpacing: 'var(--tracking-tight)' }}>
-                    Demo Control
-                  </h3>
-                  <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)' }}>
-                    Inject failure scenarios into CRAVE and watch Niramay detect and heal them
-                  </p>
-                </div>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
-                  padding: '4px 12px', borderRadius: 'var(--radius-full)',
-                  background: craveConnected ? 'rgba(0,255,128,0.08)' : 'rgba(255,255,255,0.04)',
-                  border: `1px solid ${craveConnected ? 'var(--color-status-success)' : 'var(--color-border-default)'}`,
-                }}>
-                  <div style={{
-                    width: 6, height: 6, borderRadius: '50%',
-                    background: craveConnected ? 'var(--color-status-success)' : 'var(--color-text-tertiary)',
-                    animation: craveConnected ? 'pulse 2s infinite' : 'none',
-                  }} />
-                  <span style={{ fontSize: 10, color: craveConnected ? 'var(--color-status-success)' : 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-wider)' }}>
-                    {craveConnected ? 'CRAVE Live' : 'Awaiting CRAVE'}
-                  </span>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', marginBottom: 'var(--space-4)' }}>
-                <button
-                  onClick={() => triggerFailure('database_error')}
-                  disabled={triggerState === 'loading'}
-                  className="ripple-host"
-                  onMouseDown={(e) => createRipple(e)}
-                  style={{
-                    padding: 'var(--space-2) var(--space-5)',
-                    borderRadius: 'var(--radius-md)',
-                    background: triggerState === 'loading' ? 'var(--color-accent-tertiary)' : 'rgba(212,132,94,0.12)',
-                    border: '1px solid rgba(212,132,94,0.25)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: 'var(--text-xs)',
-                    cursor: triggerState === 'loading' ? 'wait' : 'pointer',
-                    fontWeight: 'var(--font-weight-medium)' as any,
-                    letterSpacing: 'var(--tracking-wide)',
-                    transition: 'all 180ms var(--ease-out-expo)',
-                  }}
-                >
-                  {triggerState === 'loading' ? 'Injecting…' : 'Trigger Database Failure'}
-                </button>
-                <button
-                  onClick={() => triggerFailure('rate_limit')}
-                  disabled={triggerState === 'loading'}
-                  className="ripple-host"
-                  onMouseDown={(e) => createRipple(e)}
-                  style={{
-                    padding: 'var(--space-2) var(--space-5)',
-                    borderRadius: 'var(--radius-md)',
-                    background: triggerState === 'loading' ? 'var(--color-accent-tertiary)' : 'rgba(212,132,94,0.12)',
-                    border: '1px solid rgba(212,132,94,0.25)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: 'var(--text-xs)',
-                    cursor: triggerState === 'loading' ? 'wait' : 'pointer',
-                    fontWeight: 'var(--font-weight-medium)' as any,
-                    letterSpacing: 'var(--tracking-wide)',
-                    transition: 'all 180ms var(--ease-out-expo)',
-                  }}
-                >
-                  {triggerState === 'loading' ? 'Injecting…' : 'Trigger Rate Limit Failure'}
-                </button>
-              </div>
-
-              {triggerMessage && (
-                <p style={{
-                  fontSize: 'var(--text-xs)',
-                  color: triggerState === 'success' ? 'var(--color-status-success)' : 'var(--color-status-error)',
-                  marginBottom: 'var(--space-3)',
-                }}>
-                  {triggerMessage}
-                </p>
-              )}
-
-              {(lastTriggered || pipelineStage) && (
-                <div style={{ display: 'flex', gap: 'var(--space-6)', flexWrap: 'wrap', paddingTop: 'var(--space-3)', borderTop: '1px solid var(--color-border-subtle)' }}>
-                  {lastTriggered && (
-                    <div>
-                      <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-wider)' }}>Last Injected</span>
-                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
-                        {lastTriggered.scenario} at {lastTriggered.at}
-                      </p>
-                    </div>
-                  )}
-                  {pipelineStage && (
-                    <div>
-                      <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', textTransform: 'uppercase', letterSpacing: 'var(--tracking-wider)' }}>Pipeline Stage</span>
-                      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', marginTop: 2 }}>
-                        {pipelineStage.stage} — {pipelineStage.message}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       </main>

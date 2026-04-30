@@ -5,6 +5,9 @@
  * Polls /api/v1/pipeline/stage every 2 seconds via usePipelineStage.
  *
  * Stages: Ingesting → Detecting → Analysing → Healing → Verifying → Complete
+ *
+ * Handles staleness: if the pipeline stage hasn't updated in >60s and
+ * is not a terminal state, shows as idle/stale.
  */
 
 import { usePipelineStage } from '../hooks/useNiramayData';
@@ -43,8 +46,58 @@ function isEscalated(stage: string): boolean {
 export default function PipelineStageIndicator() {
   const data = usePipelineStage(true);
 
+  // Show idle state when nothing is happening
   if (!data || data.stage === 'idle' || data.stage === 'unknown') {
-    return null; // Don't render when nothing is happening
+    return (
+      <div
+        style={{
+          background: 'var(--color-bg-secondary)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          padding: 'var(--space-3) var(--space-6)',
+          marginBottom: 'var(--space-8)',
+          opacity: 0.7,
+        }}
+        role="status"
+        aria-label="Pipeline idle"
+      >
+        <p style={{
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-text-tertiary)',
+          margin: 0,
+          fontStyle: 'italic',
+        }}>
+          ⏸ Idle — waiting for logs. Start the consumer to begin monitoring.
+        </p>
+      </div>
+    );
+  }
+
+  // If the data is stale (server marked it as >60s old non-terminal), show subtle idle
+  if (data.stale) {
+    return (
+      <div
+        style={{
+          background: 'var(--color-bg-secondary)',
+          border: '1px solid var(--color-border-subtle)',
+          borderRadius: 'var(--radius-lg)',
+          padding: 'var(--space-3) var(--space-6)',
+          marginBottom: 'var(--space-8)',
+          opacity: 0.6,
+        }}
+        role="status"
+        aria-label="Pipeline idle"
+      >
+        <p style={{
+          fontSize: 'var(--text-xs)',
+          color: 'var(--color-text-tertiary)',
+          margin: 0,
+          fontStyle: 'italic',
+        }}>
+          Pipeline idle — last activity: {data.message}
+        </p>
+      </div>
+    );
   }
 
   const currentStepIdx = stageToStepIndex(data.stage);

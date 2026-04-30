@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Query, Request
 from typing import List, Dict, Any, Optional
 import json
+import hashlib
 import structlog
 import httpx
 from app.core.config import settings
@@ -17,6 +18,75 @@ from app.ingestion.opensearch_client import opensearch_writer
 logger = structlog.get_logger(__name__)
 
 router = APIRouter()
+
+# ── Healing toggle state (in-memory, resets on restart — starts OFF) ──
+_healing_enabled = False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CONSUMER CONTROL — Start/Stop/Status RabbitMQ consumer
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.post("/consumer/start", tags=["Consumer Control"])
+async def start_consumer():
+    """Start the RabbitMQ consumer."""
+    from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer, get_consumer_status
+    start_rabbitmq_consumer()
+    return {"success": True, "status": get_consumer_status()}
+
+
+@router.post("/consumer/stop", tags=["Consumer Control"])
+async def stop_consumer():
+    """Stop the RabbitMQ consumer."""
+    from app.ingestion.rabbitmq_consumer import stop_rabbitmq_consumer, get_consumer_status
+    stop_rabbitmq_consumer()
+    return {"success": True, "status": get_consumer_status()}
+
+
+@router.get("/consumer/status", tags=["Consumer Control"])
+async def consumer_status():
+    """Get current consumer status."""
+    from app.ingestion.rabbitmq_consumer import get_consumer_status
+    return get_consumer_status()
+
+
+@router.get("/consumer/events", tags=["Consumer Control"])
+async def consumer_events(limit: int = Query(50, ge=1, le=200)):
+    """Get recent consumer lifecycle events (connected, errors, etc.)."""
+    try:
+        data = redis_client.lrange("consumer:events", 0, limit - 1)
+        return [json.loads(x) for x in data]
+    except Exception:
+        return []
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HEALING TOGGLE — Enable/Disable healing execution
+# ──────────────────────────────────────────────────────────────────────────────
+
+@router.get("/healing/enabled", tags=["Healing Control"])
+async def get_healing_enabled():
+    """Check if healing is enabled."""
+    return {"enabled": _healing_enabled}
+
+
+@router.post("/healing/toggle", tags=["Healing Control"])
+async def toggle_healing(request: Request):
+    """Toggle healing on/off."""
+    global _healing_enabled
+    try:
+        body = await request.json()
+        _healing_enabled = bool(body.get("enabled", not _healing_enabled))
+    except Exception:
+        _healing_enabled = not _healing_enabled
+
+    # Store in Redis so dispatcher worker can check
+    try:
+        redis_client.set("healing:enabled", "1" if _healing_enabled else "0")
+    except Exception:
+        pass
+
+    return {"enabled": _healing_enabled}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -29,9 +99,14 @@ async def get_observation_logs(
 ):
     try:
         data = redis_client.lrange("observation:logs", 0, limit - 1)
-        return [json.loads(x) for x in data]
+        logs = [json.loads(x) for x in data]
+        # Add a fingerprint so frontend can detect actual data changes
+        fingerprint = hashlib.md5(
+            json.dumps([l.get("request_id", l.get("timestamp", "")) for l in logs[:10]]).encode()
+        ).hexdigest()[:12]
+        return {"logs": logs, "fingerprint": fingerprint, "count": len(logs)}
     except Exception:
-        return []
+        return {"logs": [], "fingerprint": "empty", "count": 0}
 
 
 @router.get("/observation/logs/raw", tags=["Observation"])
@@ -57,7 +132,27 @@ async def get_pipeline_stage():
     try:
         raw = redis_client.get(settings.PIPELINE_STAGE_KEY)
         if raw:
-            return json.loads(raw)
+            stage_data = json.loads(raw)
+            # Add staleness check: if stage timestamp is >60s old
+            # and stage is not a terminal state, mark as idle
+            ts = stage_data.get("timestamp")
+            if ts:
+                try:
+                    stage_time = datetime.fromisoformat(
+                        ts.replace("Z", "+00:00"))
+                    elapsed = (
+                        datetime.now(timezone.utc) - stage_time
+                    ).total_seconds()
+                    stage = stage_data.get("stage", "")
+                    terminal_stages = {
+                        "healing_complete",
+                        "healing_failed_escalated"
+                    }
+                    if elapsed > 60 and stage not in terminal_stages:
+                        stage_data["stale"] = True
+                except Exception:
+                    pass
+            return stage_data
         return {
             "stage": "idle",
             "message": "No active pipeline processing",
@@ -80,9 +175,13 @@ async def get_pipeline_stage():
 async def get_anomalies(limit: int = Query(50, ge=1, le=1000)):
     try:
         data = redis_client.lrange("observation:anomalies", 0, limit - 1)
-        return [json.loads(x) for x in data]
+        anomalies = [json.loads(x) for x in data]
+        fingerprint = hashlib.md5(
+            json.dumps([a.get("detection_id", a.get("timestamp", "")) for a in anomalies[:10]]).encode()
+        ).hexdigest()[:12]
+        return {"anomalies": anomalies, "fingerprint": fingerprint, "count": len(anomalies)}
     except Exception:
-        return []
+        return {"anomalies": [], "fingerprint": "empty", "count": 0}
 
 
 @router.get("/detection/anomalies/history", tags=["Detection"])
@@ -130,6 +229,7 @@ async def get_system_stats():
             "health_score": health_score,
             "by_endpoint": by_endpoint,
             "by_type": by_type,
+            "healing_enabled": _healing_enabled,
         }
     except Exception:
         return {
@@ -138,6 +238,7 @@ async def get_system_stats():
             "health_score": 100.0,
             "by_endpoint": {},
             "by_type": {},
+            "healing_enabled": _healing_enabled,
         }
 
 
@@ -149,9 +250,13 @@ async def get_system_stats():
 async def get_healing_actions(limit: int = Query(50, ge=1, le=1000)):
     try:
         data = redis_client.lrange("healing:actions", 0, limit - 1)
-        return [json.loads(x) for x in data]
+        actions = [json.loads(x) for x in data]
+        fingerprint = hashlib.md5(
+            json.dumps([a.get("alert_id", a.get("timestamp", "")) for a in actions[:10]]).encode()
+        ).hexdigest()[:12]
+        return {"actions": actions, "fingerprint": fingerprint, "count": len(actions)}
     except Exception:
-        return []
+        return {"actions": [], "fingerprint": "empty", "count": 0}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
