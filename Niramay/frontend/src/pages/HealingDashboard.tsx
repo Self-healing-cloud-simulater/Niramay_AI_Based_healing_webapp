@@ -18,6 +18,7 @@ import HealingActionsPanel from '../components/HealingActions';
 import AICopilot from '../components/AICopilot';
 import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
+import PipelineStageIndicator from '../components/PipelineStageIndicator';
 
 const API = import.meta.env.VITE_API_URL || '';
 
@@ -185,6 +186,28 @@ export default function HealingDashboard() {
             {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
 
+          {/* OpenSearch links */}
+          <a
+            href="http://localhost:5601/app/discover"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-icon"
+            title="View Raw Logs in OpenSearch"
+            style={{ textDecoration: 'none', fontSize: 10, padding: '4px 10px', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)' }}
+          >
+            Raw Logs →
+          </a>
+          <a
+            href="http://localhost:5601/app/management/opensearch-dashboards/indexPatterns"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-icon"
+            title="View All Indices"
+            style={{ textDecoration: 'none', fontSize: 10, padding: '4px 10px', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)' }}
+          >
+            Indices →
+          </a>
+
           {/* Theme toggle */}
           <ThemeToggle />
         </div>
@@ -315,6 +338,9 @@ export default function HealingDashboard() {
             </p>
           </div>
         </section>
+
+        {/* ── Pipeline Stage Indicator ── */}
+        <PipelineStageIndicator />
 
         {/* ── Stat Row ── */}
         <section

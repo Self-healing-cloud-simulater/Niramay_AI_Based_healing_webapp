@@ -10,10 +10,14 @@ History, and Failure Simulator endpoints.
 from fastapi import APIRouter, Query
 from typing import List, Dict, Any, Optional
 import json
+import structlog
+from app.core.config import settings
 from app.core.redis_client import redis_client
 from app.ingestion.opensearch_client import opensearch_writer
 from app.simulation.failure_config import failure_simulator
 from app.ingestion.rabbitmq_publisher import rabbitmq_publisher
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -37,6 +41,21 @@ async def get_observation_logs(
         return []
 
 
+@router.get("/observation/logs/raw", tags=["Observation"])
+async def get_raw_logs(limit: int = 100):
+    """
+    Returns raw logs from OpenSearch crave-raw-logs.
+    These are exact messages as received from CRAVE
+    before normalization.
+    """
+    try:
+        logs = opensearch_writer.get_raw_logs(limit=limit)
+        return logs
+    except Exception as e:
+        logger.warning("Failed to fetch raw logs", error=str(e))
+        return []
+
+
 @router.get("/observation/logs/history", tags=["Observation"])
 async def get_observation_logs_history(
     service: Optional[str] = Query(None, description="Filter by service name"),
@@ -47,6 +66,34 @@ async def get_observation_logs_history(
     Supports optional service filter.
     """
     return opensearch_writer.get_recent_logs(service=service, limit=limit)
+
+
+@router.get("/pipeline/stage", tags=["Pipeline"])
+async def get_pipeline_stage():
+    """
+    Returns the current pipeline stage.
+    Used by the frontend stage progress indicator.
+    Reads from Redis pipeline:stage:current key.
+    """
+    try:
+        raw = redis_client.get(settings.PIPELINE_STAGE_KEY)
+        if raw:
+            return json.loads(raw)
+        return {
+            "stage": "idle",
+            "message": "No active pipeline processing",
+            "timestamp": None,
+        }
+    except Exception as e:
+        logger.warning(
+            "Failed to read pipeline stage",
+            error=str(e)
+        )
+        return {
+            "stage": "unknown",
+            "message": str(e),
+            "timestamp": None,
+        }
 
 
 @router.post("/observe", tags=["Observation"])

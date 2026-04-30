@@ -16,9 +16,9 @@ import asyncio
 import json
 import structlog
 from datetime import datetime, timezone, timedelta
+from app.core.config import settings
 from app.core.redis_client import get_async_redis
 from app.ingestion.opensearch_client import opensearch_writer
-from app.healing.index import healing_service
 
 logger = structlog.get_logger(__name__)
 
@@ -40,6 +40,16 @@ SETTLING_WINDOWS = {
 DEFAULT_SETTLING_WINDOW = 15
 
 MAX_RETRY_ATTEMPTS = 3
+
+
+def _parse_timestamp(ts: str):
+    """Parse ISO8601 timestamp, return UTC datetime."""
+    try:
+        return datetime.fromisoformat(
+            ts.replace("Z", "+00:00")
+        )
+    except (ValueError, TypeError):
+        return datetime.min.replace(tzinfo=timezone.utc)
 
 
 async def verification_worker_loop():
@@ -87,19 +97,29 @@ async def verification_worker_loop():
                         "endpoint": action.get("endpoint", "unknown"),
                         "failure_tag": action.get("failure_tag", "none"),
                         "timestamp": action.get("timestamp", ""),
-                        "last_action": action.get("healing_action", "unknown"),
+                        "last_action": action.get(
+                            "healing_action", "unknown"),
+                        "scenarios_disabled": action.get(
+                            "scenarios_disabled", []),
+                        "container_restarted": action.get(
+                            "container_restarted"),
                     }
                     pending_verifications[detection_id] = pv
 
                 # Check settling window
                 healing_action = action.get("healing_action", "unknown")
-                wait_seconds = SETTLING_WINDOWS.get(healing_action, DEFAULT_SETTLING_WINDOW)
+                wait_seconds = SETTLING_WINDOWS.get(
+                    healing_action, DEFAULT_SETTLING_WINDOW
+                )
 
                 try:
                     action_time = datetime.fromisoformat(
-                        action.get("timestamp", "").replace("Z", "+00:00")
+                        action.get("timestamp", "").replace(
+                            "Z", "+00:00")
                     )
-                    elapsed = (datetime.now(timezone.utc) - action_time).total_seconds()
+                    elapsed = (
+                        datetime.now(timezone.utc) - action_time
+                    ).total_seconds()
                 except (ValueError, TypeError):
                     elapsed = 0
 
@@ -136,18 +156,120 @@ async def verification_worker_loop():
                     if status >= 500 or (failure and failure != "none"):
                         anomaly_count += 1
 
-                failure_rate = anomaly_count / len(subsequent_logs) if subsequent_logs else 0
+                failure_rate = (
+                    anomaly_count / len(subsequent_logs)
+                    if subsequent_logs else 0
+                )
 
-                if failure_rate <= 0.3:
+                # ── Dual verification conditions ──
+
+                # Condition 1: failure rate below threshold
+                # in the total window
+                rate_ok = failure_rate <= \
+                    settings.VERIFICATION_FAILURE_RATE_THRESHOLD
+
+                # Condition 2: no failure_tag != none in the
+                # clean window (last N seconds)
+                clean_cutoff = datetime.now(timezone.utc) - \
+                    timedelta(
+                        seconds=settings.VERIFICATION_CLEAN_WINDOW_SECONDS
+                    )
+                recent_with_failure = [
+                    log for log in subsequent_logs
+                    if log.get("failure_tag", "none") != "none"
+                    and _parse_timestamp(
+                        log.get("timestamp", "")
+                    ) >= clean_cutoff
+                ]
+                clean_ok = len(recent_with_failure) == 0
+
+                healing_succeeded = rate_ok and clean_ok
+
+                if healing_succeeded:
                     # ✅ Healing verified — anomaly resolved
                     pv["outcomes"].append("SUCCESS")
+
+                    # Calculate time to heal
+                    try:
+                        detection_time = _parse_timestamp(
+                            pv.get("timestamp", "")
+                        )
+                        heal_time = datetime.now(timezone.utc)
+                        time_to_heal = (
+                            heal_time - detection_time
+                        ).total_seconds()
+                    except Exception:
+                        time_to_heal = None
+
                     logger.info(
                         "Healing verified: SUCCESS",
                         detection_id=detection_id,
                         failure_rate=f"{failure_rate:.1%}",
+                        time_to_heal=time_to_heal,
                     )
-                    opensearch_writer.update_incident_report_status(detection_id, "SUCCESS")
+
+                    # Generate CRAVE Anomaly Healed Report
+                    healed_report = {
+                        "report_type": "CRAVE Anomaly Healed Report",
+                        "detection_id": detection_id,
+                        "service": pv["service"],
+                        "endpoint": pv["endpoint"],
+                        "failure_tag": pv["failure_tag"],
+                        "healing_action_taken": pv.get(
+                            "last_action", "unknown"),
+                        "scenarios_disabled": pv.get(
+                            "scenarios_disabled", []),
+                        "container_restarted": pv.get(
+                            "container_restarted"),
+                        "verification_result": "SUCCESS",
+                        "failure_rate_after": round(failure_rate, 4),
+                        "time_to_heal_seconds": time_to_heal,
+                        "total_attempts": pv["attempts"] + 1,
+                        "healed_at": datetime.now(
+                            timezone.utc).isoformat(),
+                        "final_status": "HEALED",
+                        "outcomes": pv["outcomes"],
+                    }
+
+                    # Store healed report to OpenSearch
+                    opensearch_writer.write_healed_report(healed_report)
+
+                    # Update original incident report status
+                    opensearch_writer.update_incident_with_healing_result(
+                        detection_id=detection_id,
+                        healing_result={
+                            "healing_action": pv.get(
+                                "last_action", "unknown"),
+                            "status": "success",
+                            "scenarios_disabled": pv.get(
+                                "scenarios_disabled", []),
+                            "container_restarted": pv.get(
+                                "container_restarted"),
+                        },
+                        verification_status="HEALED",
+                        failure_rate=failure_rate,
+                        attempts=pv["attempts"] + 1,
+                    )
+
+                    # Update pipeline stage
+                    try:
+                        await r.set(
+                            settings.PIPELINE_STAGE_KEY,
+                            json.dumps({
+                                "stage": "healing_complete",
+                                "timestamp": datetime.now(
+                                    timezone.utc).isoformat(),
+                                "message": "Healing complete, "
+                                           "system healthy",
+                                "service": pv["service"],
+                                "time_to_heal": time_to_heal,
+                            })
+                        )
+                    except Exception:
+                        pass
+
                     del pending_verifications[detection_id]
+
                 else:
                     # ❌ Anomaly persists
                     pv["attempts"] += 1
@@ -157,13 +279,41 @@ async def verification_worker_loop():
                     if pv["attempts"] >= MAX_RETRY_ATTEMPTS:
                         # Generate escalation alert
                         await _escalate(r, pv, detection_id)
-                        opensearch_writer.update_incident_report_status(detection_id, "ESCALATED")
+
+                        # Update pipeline stage
+                        try:
+                            await r.set(
+                                settings.PIPELINE_STAGE_KEY,
+                                json.dumps({
+                                    "stage": "healing_failed_escalated",
+                                    "timestamp": datetime.now(
+                                        timezone.utc).isoformat(),
+                                    "message": "Healing failed after "
+                                               "3 attempts, escalated",
+                                    "service": pv["service"],
+                                    "attempts": MAX_RETRY_ATTEMPTS,
+                                })
+                            )
+                        except Exception:
+                            pass
+
+                        # Update incident report status to ESCALATED
+                        opensearch_writer.update_incident_with_healing_result(
+                            detection_id=detection_id,
+                            healing_result={
+                                "healing_action": pv.get(
+                                    "last_action", "unknown"),
+                                "status": "failed",
+                                "scenarios_disabled": [],
+                                "container_restarted": None,
+                            },
+                            verification_status="ESCALATED",
+                            failure_rate=failure_rate,
+                            attempts=MAX_RETRY_ATTEMPTS,
+                        )
                         del pending_verifications[detection_id]
                     else:
-                        # Retry: push the original detection back
-                        # to Dispatcher Worker queue with incremented
-                        # retry context so Dispatcher Worker
-                        # re-dispatches to Component A
+                        # Retry: push back to Dispatcher Worker
                         logger.warning(
                             "Healing failed, retrying",
                             detection_id=detection_id,
@@ -181,6 +331,9 @@ async def verification_worker_loop():
                                 "severity": action.get(
                                     "severity", "medium"),
                                 "timestamp": action.get("timestamp"),
+                                "recommended_action": action.get(
+                                    "healing_action", "restart_service"),
+                                "alert_id": action.get("alert_id"),
                                 "is_retry": True,
                             }
                             await r.rpush(

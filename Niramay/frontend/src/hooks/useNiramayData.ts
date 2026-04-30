@@ -117,6 +117,41 @@ export function useNiramayData(): NiramayData {
 }
 
 
+export function usePipelineStage(
+    enabled: boolean = true
+) {
+    const [stage, setStage] = useState<{
+        stage: string;
+        message: string;
+        timestamp: string | null;
+        service?: string;
+        severity?: string;
+        failure_tag?: string;
+        recommended_action?: string;
+        healing_action?: string;
+        status?: string;
+        time_to_heal?: number;
+    } | null>(null);
+
+    useEffect(() => {
+        if (!enabled) return;
+        const poll = async () => {
+            try {
+                const res = await fetch(
+                    "/api/v1/pipeline/stage"
+                );
+                if (res.ok) setStage(await res.json());
+            } catch {}
+        };
+        poll();
+        const interval = setInterval(poll, 2000);
+        return () => clearInterval(interval);
+    }, [enabled]);
+
+    return stage;
+}
+
+
 /**
  * useLogHistory — Fetches historical logs from OpenSearch.
  * Refreshes every 30 seconds.

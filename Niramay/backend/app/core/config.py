@@ -39,6 +39,33 @@ class Settings(BaseSettings):
     OPENSEARCH_USER: Optional[str] = None
     OPENSEARCH_PASSWORD: Optional[str] = None
 
+    # OpenSearch index names
+    # All indices use crave- prefix to reflect
+    # that data originates from CRAVE
+    OPENSEARCH_INDEX_RAW_LOGS: str = "crave-raw-logs"
+    OPENSEARCH_INDEX_NORMALIZED: str = "crave-normalized-logs"
+    OPENSEARCH_INDEX_HEALTHY: str = "crave-healthy-logs"
+    OPENSEARCH_INDEX_ANOMALIES: str = "crave-anomaly-records"
+    OPENSEARCH_INDEX_INCIDENTS: str = "crave-incident-reports"
+    OPENSEARCH_INDEX_HEALED: str = "crave-healed-reports"
+
+    # CRAVE connection details
+    # Component A uses these to call CRAVE heal endpoint
+    CRAVE_BACKEND_URL: str = "http://crave-backend:8000"
+    CRAVE_DEVELOPER_EMAIL: str = "developer@example.com"
+    CRAVE_DEVELOPER_PASSWORD: str = "developer123"
+
+    # Healing executor timeout
+    COMPONENT_A_TIMEOUT_SECONDS: int = 30
+
+    # Verification thresholds
+    # Both conditions must be met for SUCCESS
+    VERIFICATION_FAILURE_RATE_THRESHOLD: float = 0.10
+    VERIFICATION_CLEAN_WINDOW_SECONDS: int = 30
+    VERIFICATION_TOTAL_WINDOW_SECONDS: int = 60
+
+    # Pipeline stage tracking
+    PIPELINE_STAGE_KEY: str = "pipeline:stage:current"
 
     @property
     def REDIS_URL(self) -> str:

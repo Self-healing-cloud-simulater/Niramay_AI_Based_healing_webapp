@@ -18,6 +18,8 @@ No SQLite. No dead Redis keys.
 import asyncio
 import json
 import structlog
+from datetime import datetime, timezone
+from app.core.config import settings
 from app.core.redis_client import get_async_redis
 from app.detection.index import detection_service
 # from app.healing.index import healing_service
@@ -173,6 +175,26 @@ async def _handle_anomaly(r, detection_result: dict):
             "Failed to push to Analyser Worker queue",
             error=str(e)
         )
+
+    # ── 7. Update pipeline stage ──
+    try:
+        await r.set(
+            settings.PIPELINE_STAGE_KEY,
+            json.dumps({
+                "stage": "stage_2_complete",
+                "timestamp": datetime.now(
+                    timezone.utc).isoformat(),
+                "message": "Anomaly detected, analysis starting",
+                "service": detection_result.get("service"),
+                "severity": detection_result.get("severity"),
+                "failure_tag": detection_result.get(
+                    "failure_tag", "none"),
+                "anomaly_score": detection_result.get(
+                    "anomaly_score"),
+            })
+        )
+    except Exception:
+        pass
 
     # ── 7. Healing result storage (COMMENTED OUT) ──
     # Will be re-enabled when Component A is designed.
