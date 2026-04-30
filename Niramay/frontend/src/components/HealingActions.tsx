@@ -116,6 +116,12 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                   gap: 'var(--space-3)',
                   padding: 'var(--space-3) var(--space-2)',
                   cursor: 'default',
+                  borderRadius: 'var(--radius-md)',
+                  background: a.status === 'failed'
+                    ? 'rgba(239,68,68,0.04)'
+                    : a.verification_status === 'HEALED' || a.verification_status === 'SUCCESS'
+                    ? 'rgba(16,185,129,0.04)'
+                    : undefined,
                 }}
               >
                 {/* Icon container */}
@@ -123,7 +129,9 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                   width: 32,
                   height: 32,
                   borderRadius: 'var(--radius-md)',
-                  background: 'var(--color-accent-tertiary)',
+                  background: a.status === 'failed'
+                    ? 'rgba(239,68,68,0.08)'
+                    : 'var(--color-accent-tertiary)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -151,14 +159,61 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                     </span>
 
                     <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
+                      {a.retry_count != null && a.retry_count > 0 && (
+                        <span className="badge badge-neutral" style={{ fontSize: 9, padding: '1px 4px' }}>
+                          Attempt {a.retry_count + 1}
+                        </span>
+                      )}
                       {a.verification_status !== 'PENDING' && (
-                        <span className={`badge badge-${a.verification_status === 'SUCCESS' ? 'success' : 'error'}`} style={{ fontSize: 9, padding: '1px 4px' }}>
+                        <span className={`badge badge-${
+                          a.verification_status === 'SUCCESS' || a.verification_status === 'HEALED'
+                            ? 'success' : 'error'
+                        }`} style={{ fontSize: 9, padding: '1px 4px' }}>
                           {a.verification_status}
                         </span>
                       )}
-                      <span className={`dot dot-${a.status === 'success' ? 'success' : 'warning'}`} />
+                      <span className={`dot dot-${a.status === 'success' ? 'success' : a.status === 'failed' ? 'error' : 'warning'}`} />
                     </div>
                   </div>
+
+                  {/* Service + container context */}
+                  {(a.service || a.container_restarted) && (
+                    <div style={{
+                      display: 'flex',
+                      gap: 'var(--space-3)',
+                      marginTop: 'var(--space-1)',
+                      fontSize: 10,
+                      color: 'var(--color-text-tertiary)',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {a.service && <span>Service: {a.service}</span>}
+                      {a.container_restarted && <span>Container: {a.container_restarted}</span>}
+                    </div>
+                  )}
+
+                  {/* Scenarios disabled */}
+                  {a.scenarios_disabled && a.scenarios_disabled.length > 0 && (
+                    <div style={{
+                      marginTop: 'var(--space-1)',
+                      fontSize: 10,
+                      color: 'var(--color-status-success)',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      Disabled: {a.scenarios_disabled.join(', ')}
+                    </div>
+                  )}
+
+                  {/* Error — only on failed */}
+                  {a.status === 'failed' && a.error && (
+                    <div style={{
+                      marginTop: 'var(--space-1)',
+                      fontSize: 10,
+                      color: 'var(--color-status-error)',
+                      fontFamily: 'var(--font-mono)',
+                    }}>
+                      {a.error}
+                    </div>
+                  )}
 
                   {/* Message — revealed on hover */}
                   <div className="reveal-on-hover" style={{

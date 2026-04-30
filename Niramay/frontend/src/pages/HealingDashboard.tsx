@@ -7,36 +7,75 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useTheme, createRipple, type ObservationLog, type AnomalyLog, type HealingAction } from '../designSystem';
-import { useNiramayData } from '../hooks/useNiramayData';
+import { useNiramayData, usePipelineStage, useConsumerControl, useHealingToggle } from '../hooks/useNiramayData';
 import StatCard from '../components/StatCard';
 import ThemeToggle from '../components/Toggle';
 import ObservationFeed from '../components/ObservationFeed';
 import DetectionAlerts from '../components/DetectionAlerts';
 import HealingActionsPanel from '../components/HealingActions';
-import AICopilot from '../components/AICopilot';
+
 import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
 import PipelineStageIndicator from '../components/PipelineStageIndicator';
 
-const API = import.meta.env.VITE_API_URL || '';
+// Empty string routes all requests through the Vite proxy (/api → niramay-backend:8000).
+// Never use VITE_API_URL here — the browser cannot resolve the docker container hostname.
+const API = '';
+
+type TriggerState = 'idle' | 'loading' | 'success' | 'error';
 
 export default function HealingDashboard() {
   const { isDark } = useTheme();
-  const { 
-    logs, 
-    anomalies, 
-    healingActions, 
+  const navigate = useNavigate();
+  const {
+    logs,
+    anomalies,
+    healingActions,
     incidentReports,
-    stats, 
-    isLive, 
-    setIsLive, 
-    lastRefresh, 
-    loading, 
+    stats,
+    isLive,
+    setIsLive,
+    lastRefresh,
+    loading,
     fetchData,
-    metrics 
+    metrics
   } = useNiramayData();
+
+  const pipelineStage = usePipelineStage(true);
+  const consumer = useConsumerControl();
+  const healingToggle = useHealingToggle();
+
+  const [triggerState, setTriggerState] = useState<TriggerState>('idle');
+  const [triggerMessage, setTriggerMessage] = useState('');
+  const [lastTriggered, setLastTriggered] = useState<{ scenario: string; at: string } | null>(null);
+
+  const triggerFailure = useCallback(async (scenario: string) => {
+    setTriggerState('loading');
+    setTriggerMessage('');
+    try {
+      const res = await fetch(`${API}/api/v1/demo/trigger-failure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scenario }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTriggerState('success');
+        setTriggerMessage(`Failure injected — watch Niramay detect and heal`);
+        setLastTriggered({ scenario, at: new Date().toLocaleTimeString() });
+      } else {
+        setTriggerState('error');
+        setTriggerMessage(data.error || 'Failed to inject failure');
+      }
+    } catch (err: any) {
+      setTriggerState('error');
+      setTriggerMessage(err.message || 'Network error');
+    }
+    setTimeout(() => setTriggerState('idle'), 5000);
+  }, []);
 
   const [scrolled, setScrolled] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
@@ -124,8 +163,85 @@ export default function HealingDashboard() {
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 'var(--space-4)',
+          gap: 'var(--space-3)',
         }}>
+          {/* Consumer toggle */}
+          <button
+            id="consumer-toggle"
+            onClick={() => consumer.status.running ? consumer.stopConsumer() : consumer.startConsumer()}
+            disabled={consumer.loading}
+            className="ripple-host"
+            onMouseDown={(e) => createRipple(e)}
+            aria-label={consumer.status.running ? 'Stop consumer' : 'Start consumer'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '4px 12px',
+              borderRadius: 'var(--radius-full)',
+              background: consumer.status.running ? 'rgba(45, 122, 79, 0.08)' : 'rgba(239,68,68,0.06)',
+              border: `1px solid ${consumer.status.running ? 'rgba(45,122,79,0.2)' : 'rgba(239,68,68,0.15)'}`,
+              cursor: consumer.loading ? 'wait' : 'pointer',
+              transition: 'all 180ms var(--ease-out-expo)',
+            }}
+          >
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: consumer.status.running ? 'var(--color-status-success)' : 'var(--color-status-error)',
+              animation: consumer.status.connected ? 'pulse 2s infinite' : 'none',
+            }} />
+            <span style={{
+              fontSize: 10,
+              color: consumer.status.running ? 'var(--color-status-success)' : 'var(--color-status-error)',
+              letterSpacing: 'var(--tracking-wider)',
+              textTransform: 'uppercase',
+              fontWeight: 'var(--font-weight-medium)' as any,
+            }}>
+              {consumer.loading ? '...' : consumer.status.running ? 'Consumer ON' : 'Consumer OFF'}
+            </span>
+          </button>
+
+          {/* Healing toggle */}
+          <button
+            id="healing-toggle"
+            onClick={() => healingToggle.toggle()}
+            disabled={healingToggle.loading}
+            className="ripple-host"
+            onMouseDown={(e) => createRipple(e)}
+            aria-label={healingToggle.enabled ? 'Disable healing' : 'Enable healing'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '4px 12px',
+              borderRadius: 'var(--radius-full)',
+              background: healingToggle.enabled ? 'rgba(45, 122, 79, 0.08)' : 'rgba(239,68,68,0.06)',
+              border: `1px solid ${healingToggle.enabled ? 'rgba(45,122,79,0.2)' : 'rgba(239,68,68,0.15)'}`,
+              cursor: healingToggle.loading ? 'wait' : 'pointer',
+              transition: 'all 180ms var(--ease-out-expo)',
+            }}
+          >
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: healingToggle.enabled ? 'var(--color-status-success)' : 'var(--color-status-error)',
+            }} />
+            <span style={{
+              fontSize: 10,
+              color: healingToggle.enabled ? 'var(--color-status-success)' : 'var(--color-status-error)',
+              letterSpacing: 'var(--tracking-wider)',
+              textTransform: 'uppercase',
+              fontWeight: 'var(--font-weight-medium)' as any,
+            }}>
+              {healingToggle.enabled ? 'Healing ON' : 'Healing OFF'}
+            </span>
+          </button>
+
+          <div style={{ width: 1, height: 20, background: 'var(--color-border-subtle)' }} />
+
+          {/* Nav links */}
+          <button onClick={() => navigate('/')} className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}>Home</button>
+          <button onClick={() => navigate('/visualizer')} className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}>Live View</button>
+
           {/* Live indicator */}
           <button
             id="live-toggle"
@@ -185,28 +301,6 @@ export default function HealingDashboard() {
           }}>
             {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
-
-          {/* OpenSearch links */}
-          <a
-            href="http://localhost:5601/app/discover"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-icon"
-            title="View Raw Logs in OpenSearch"
-            style={{ textDecoration: 'none', fontSize: 10, padding: '4px 10px', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)' }}
-          >
-            Raw Logs →
-          </a>
-          <a
-            href="http://localhost:5601/app/management/opensearch-dashboards/indexPatterns"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-icon"
-            title="View All Indices"
-            style={{ textDecoration: 'none', fontSize: 10, padding: '4px 10px', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-md)' }}
-          >
-            Indices →
-          </a>
 
           {/* Theme toggle */}
           <ThemeToggle />
@@ -386,11 +480,8 @@ export default function HealingDashboard() {
           <div data-aos="fade-up" data-aos-delay="100">
             <DetectionAlerts anomalies={anomalies} stats={stats} />
           </div>
-          <div data-aos="fade-up" data-aos-delay="200">
+          <div data-aos="fade-up" data-aos-delay="200" style={{ gridColumn: '1 / -1' }}>
             <HealingActionsPanel actions={healingActions} />
-          </div>
-          <div data-aos="fade-up" data-aos-delay="300">
-            <AICopilot anomalies={anomalies} />
           </div>
           <div data-aos="fade-up" data-aos-delay="400" style={{ gridColumn: '1 / -1' }}>
             <IncidentReportsPanel reports={incidentReports} />

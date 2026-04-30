@@ -98,7 +98,6 @@ async def test_restart_strategy_success_when_all_steps_pass():
 
     assert result["status"] == "success"
     assert result["container_restarted"] == "crave-backend"
-    # Phase 1: CRAVE heal disabled, so scenarios_disabled is []
     assert isinstance(result["scenarios_disabled"], list)
 
 
@@ -181,6 +180,15 @@ async def test_restart_strategy_fails_if_docker_restart_fails():
 
     assert result["status"] == "failed"
     assert result["container_restarted"] is None
+
+
+def test_crave_heal_enabled_flag_is_true():
+    """CRAVE_HEAL_ENABLED must be True — CRAVE confirmed reachable and heal endpoint returns 200."""
+    from app.healing_action_executor.strategies import restart
+    assert restart.CRAVE_HEAL_ENABLED is True, (
+        "CRAVE_HEAL_ENABLED must be True now that "
+        "CRAVE is confirmed reachable and heal endpoint returns 200"
+    )
 
 
 @pytest.mark.asyncio

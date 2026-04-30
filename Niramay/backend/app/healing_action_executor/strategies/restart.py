@@ -39,8 +39,8 @@ logger = structlog.get_logger(__name__)
 
 # ── CRAVE heal endpoint integration ──
 # Set to True to enable calling the CRAVE heal endpoint.
-# Currently disabled: will be enabled in Phase 2 integration.
-CRAVE_HEAL_ENABLED = False
+# Enabled: CRAVE confirmed reachable and heal endpoint returns 200.
+CRAVE_HEAL_ENABLED = True
 
 # Token cache to avoid logging in on every heal call
 _cached_token: str | None = None
@@ -221,48 +221,38 @@ class RestartServiceStrategy(BaseHealingStrategy):
             )
 
         # ── Step 1: Call CRAVE heal endpoint ──
-        # DISABLED in Phase 1. Will be enabled in Phase 2
-        # integration once both systems are confirmed healthy.
-        # To enable: set CRAVE_HEAL_ENABLED = True above.
         scenarios_disabled = []
         heal_step_success = False
 
-        # if CRAVE_HEAL_ENABLED:
-        #     token = await _get_crave_auth_token()
-        #     if token is None:
-        #         logger.warning(
-        #             "RestartServiceStrategy: could not get "
-        #             "auth token, skipping heal endpoint",
-        #             service=service
-        #         )
-        #     else:
-        #         heal_result = await _call_crave_heal_endpoint(
-        #             token
-        #         )
-        #         heal_step_success = heal_result.get(
-        #             "success", False)
-        #         scenarios_disabled = heal_result.get(
-        #             "scenarios_disabled", [])
-        #         if not heal_step_success:
-        #             logger.warning(
-        #                 "RestartServiceStrategy: heal endpoint "
-        #                 "failed, proceeding with restart anyway",
-        #                 error=heal_result.get("error"),
-        #                 service=service
-        #             )
-        # else:
-        #     logger.info(
-        #         "RestartServiceStrategy: CRAVE heal endpoint "
-        #         "disabled (Phase 1) — skipping Step 1",
-        #         service=service
-        #     )
-
-        logger.info(
-            "RestartServiceStrategy: CRAVE heal endpoint "
-            "disabled (Phase 1) — proceeding directly to "
-            "container restart",
-            service=service
-        )
+        if CRAVE_HEAL_ENABLED:
+            token = await _get_crave_auth_token()
+            if token is None:
+                logger.warning(
+                    "RestartServiceStrategy: could not get "
+                    "auth token, skipping heal endpoint",
+                    service=service
+                )
+            else:
+                heal_result = await _call_crave_heal_endpoint(
+                    token
+                )
+                heal_step_success = heal_result.get(
+                    "success", False)
+                scenarios_disabled = heal_result.get(
+                    "scenarios_disabled", [])
+                if not heal_step_success:
+                    logger.warning(
+                        "RestartServiceStrategy: heal endpoint "
+                        "failed, proceeding with restart anyway",
+                        error=heal_result.get("error"),
+                        service=service
+                    )
+        else:
+            logger.info(
+                "RestartServiceStrategy: CRAVE heal endpoint "
+                "disabled — skipping Step 1",
+                service=service
+            )
 
         # ── Step 2: Restart container via Docker socket ──
         # Always attempt. Works independently of Step 1.

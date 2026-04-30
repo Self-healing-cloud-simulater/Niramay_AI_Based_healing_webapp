@@ -97,6 +97,11 @@ export interface ObservationLog {
   response_time_ms: number;
   failure_tag: string;
   request_id?: string;
+  // Extra fields returned by the normalizer — useful for diagnostics
+  incomplete_fields?: string[];
+  is_malformed?: boolean;
+  is_timestamp_assigned?: boolean;
+  raw?: string;
 }
 
 export interface AnomalyLog {
@@ -139,6 +144,19 @@ export interface HealingAction {
   timestamp: string;
   message: string;
   verification_status: string;
+  // Fields added to match full API response (dispatcher worker)
+  alert_id?: string;
+  detection_id?: string;
+  service?: string;
+  endpoint?: string;
+  failure_tag?: string;
+  recommended_action?: string;
+  container_restarted?: string | null;
+  scenarios_disabled?: string[];
+  error?: string | null;
+  executed_at?: string;
+  heal_endpoint_called?: boolean;
+  retry_count?: number;
 }
 
 export interface IncidentReport {
@@ -155,7 +173,7 @@ export interface EscalationAlert {
   type: string;
   service: string;
   endpoint: string;
-  failure_tag: string;  // Uses failure_tag to match detection pipeline output
+  failure_type: string;  // Matches backend schemas.py EscalationAlertResponse
   attempts: number;
   healing_actions_tried: string[];
   outcomes: string[];
