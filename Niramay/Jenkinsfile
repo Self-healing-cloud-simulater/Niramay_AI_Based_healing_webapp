@@ -1,0 +1,75 @@
+pipeline {
+    agent any
+
+    environment {
+        BASE_URL = "http://niramay-backend:8000/api/v1"
+        ROOT_URL = "http://niramay-backend:8000"
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Verify Niramay is Running') {
+            steps {
+                echo "🔍 Checking Niramay backend is reachable..."
+                sh 'curl -f http://niramay-backend:8000/health || echo "Backend not reachable!"'
+            }
+        }
+
+        stage('Install Dependencies') {
+    steps {
+        echo "📦 Installing Python dependencies..."
+        sh '''
+        pip3 install --break-system-packages --upgrade pip
+        pip3 install --break-system-packages pytest requests
+        pip3 install --break-system-packages -r Niramay/backend/tests/requirements.txt
+        '''
+    }
+}
+
+        stage('Run Niramay Tests') {
+            steps {
+                echo "🧪 Running E2E healing pipeline tests..."
+                sh '''
+                python3 -m pytest Niramay/backend/tests/test_niramay_pipeline.py -v
+                '''
+            }
+        }
+
+        stage('Collect Debug Info (on failure)') {
+            when {
+                expression { currentBuild.currentResult == 'FAILURE' }
+            }
+            steps {
+                echo "⚠️ Collecting debug data..."
+                sh '''
+                echo "===== LOGS ====="
+                curl http://niramay-backend:8000/api/v1/observation/logs
+
+                echo "===== ANOMALIES ====="
+                curl http://niramay-backend:8000/api/v1/detection/anomalies
+
+                echo "===== REPORTS ====="
+                curl http://niramay-backend:8000/api/v1/incident/reports
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "✅ Pipeline finished."
+        }
+        success {
+            echo "✅ Niramay healing pipeline test PASSED"
+        }
+        failure {
+            echo "❌ Niramay healing pipeline test FAILED"
+        }
+    }
+}
