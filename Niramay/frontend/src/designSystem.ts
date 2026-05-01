@@ -262,3 +262,95 @@ export function createRipple(e: React.MouseEvent<HTMLElement>) {
   element.appendChild(ripple);
   setTimeout(() => ripple.remove(), 600);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   NEW DATA TYPES — Features 1–6
+   ═══════════════════════════════════════════════════════════════════ */
+
+/** Feature 1 — Raw log entry from crave-raw-logs */
+export interface RawLogHit {
+  timestamp: string;
+  source: string;
+  message: string;
+  level: string;
+  traceId: string;
+  _raw: Record<string, unknown>;
+}
+
+/** Feature 1 — Normalized log entry from crave-normalized-logs */
+export interface NormalizedLogHit {
+  timestamp: string;
+  service: string;
+  endpoint: string;
+  method: string;
+  status_code: number;
+  response_time_ms: number;
+  failure_tag: string;
+  request_id?: string;
+  anomaly_score?: number;
+  is_malformed?: boolean;
+  raw?: string;
+}
+
+/** Feature 1 — Paginated log response envelope */
+export interface LogPage<T> {
+  total: number;
+  page: number;
+  size: number;
+  hits: T[];
+}
+
+/** Feature 2 — Artifact card data */
+export interface ArtifactCard {
+  key: 'raw-logs' | 'anomaly-records' | 'incident-reports' | 'heal-report';
+  index: string;
+  count: number;
+  last_updated: string | null;
+}
+
+/** Feature 3 — Report entry */
+export interface Report {
+  report_id: string;
+  report_type: 'incident_summary' | 'heal_summary' | 'full_pipeline';
+  date_from: string;
+  date_to: string;
+  severities: string[];
+  format: 'pdf' | 'json' | 'csv';
+  status: 'pending' | 'ready' | 'failed';
+  generated_at: string | null;
+  row_count: number | null;
+  created_at: string;
+}
+
+/** Feature 4 — Pipeline event (from /api/v1/pipeline/events) */
+export interface PipelineEvent {
+  event_type: string;
+  stage: string;
+  timestamp: string;
+  message: string;
+}
+
+/** Feature 6 — Healing mode state */
+export interface HealingMode {
+  mode: 'autonomous' | 'manual' | null;
+  set_at: string | null;
+}
+
+/** Feature 6 — Pending manual healing action */
+export interface PendingHealingAction {
+  action_id: string;
+  healing_action: string;
+  service?: string;
+  endpoint?: string;
+  failure_tag?: string;
+  timestamp: string;
+  message: string;
+}
+
+/** Feature 5b — OpenSearch search result hit */
+export interface SearchHit {
+  _score: number;
+  timestamp: string;
+  snippet: string;
+  _source: Record<string, unknown>;
+}
