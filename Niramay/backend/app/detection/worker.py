@@ -72,12 +72,13 @@ async def detection_worker_loop():
 
     while True:
         try:
-            # Blocking pop from the detection queue (5s timeout)
-            result = await r.brpop(PENDING_DETECTION_KEY, timeout=5)
+            # Non-blocking pop to avoid uvicorn/aioredis brpop deadlock bug
+            result = await r.lpop(PENDING_DETECTION_KEY)
             if result is None:
+                await asyncio.sleep(0.5)
                 continue
-
-            _, raw = result
+                
+            raw = result
             try:
                 log = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
