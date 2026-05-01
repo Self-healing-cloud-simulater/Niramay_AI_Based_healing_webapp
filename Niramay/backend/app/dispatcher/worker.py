@@ -29,6 +29,8 @@ async def dispatcher_worker_loop():
     Main async loop for the Dispatcher Worker.
     Pops machine alerts from dispatcher:pending queue
     and dispatches to Component A.
+
+    Automatically reconnects if the Redis connection goes stale.
     """
     logger.info("Dispatcher Worker started")
     r = await get_async_redis()
@@ -54,9 +56,25 @@ async def dispatcher_worker_loop():
         except asyncio.CancelledError:
             logger.info("Dispatcher Worker cancelled")
             break
+        except (ConnectionError, OSError) as e:
+            logger.warning(
+                "Dispatcher Worker: Redis connection lost, reconnecting",
+                error=str(e)
+            )
+            try:
+                await r.aclose()
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+            r = await get_async_redis()
         except Exception as e:
             logger.error("Dispatcher Worker error", error=str(e))
+            try:
+                await r.aclose()
+            except Exception:
+                pass
             await asyncio.sleep(2)
+            r = await get_async_redis()
 
 
 async def _execute_healing(

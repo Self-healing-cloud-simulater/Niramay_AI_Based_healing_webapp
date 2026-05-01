@@ -30,6 +30,7 @@ function stageToStepIndex(stage: string): number {
   if (stage === 'stage_4_healing_executing' || stage === 'stage_4_healing_complete') return 3;
   if (stage === 'healing_complete') return 5;
   if (stage === 'healing_failed_escalated') return 5;
+  if (stage === 'healing_failed_email_sent') return 5;
   return -1;
 }
 
@@ -40,7 +41,11 @@ function isPulsing(stage: string, stepIdx: number): boolean {
 }
 
 function isEscalated(stage: string): boolean {
-  return stage === 'healing_failed_escalated';
+  return stage === 'healing_failed_escalated' || stage === 'healing_failed_email_sent';
+}
+
+function isEmailSent(stage: string): boolean {
+  return stage === 'healing_failed_email_sent';
 }
 
 export default function PipelineStageIndicator() {
@@ -203,6 +208,22 @@ export default function PipelineStageIndicator() {
         {isComplete && data.time_to_heal !== undefined && data.time_to_heal !== null && (
           <span style={{ marginLeft: 8, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
             · healed in {Number(data.time_to_heal).toFixed(1)}s
+          </span>
+        )}
+        {isEmailSent(data.stage) && (
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            marginLeft: 8,
+            padding: '2px 8px',
+            background: 'rgba(220, 38, 38, 0.1)',
+            borderRadius: 4,
+            fontSize: 11,
+            fontWeight: 600,
+            color: 'var(--color-status-error, #e05252)',
+          }}>
+            ✉️ Developer notified via email
           </span>
         )}
       </p>

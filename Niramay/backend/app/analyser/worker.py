@@ -39,6 +39,8 @@ async def analyser_worker_loop():
     Pops anomaly objects from analyser:pending queue,
     runs causal analysis, generates reports, dispatches
     to Dispatcher Worker.
+
+    Automatically reconnects if the Redis connection goes stale.
     """
     logger.info("Analyser Worker started")
     r = await get_async_redis()
@@ -64,9 +66,25 @@ async def analyser_worker_loop():
         except asyncio.CancelledError:
             logger.info("Analyser Worker cancelled")
             break
+        except (ConnectionError, OSError) as e:
+            logger.warning(
+                "Analyser Worker: Redis connection lost, reconnecting",
+                error=str(e)
+            )
+            try:
+                await r.aclose()
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+            r = await get_async_redis()
         except Exception as e:
             logger.error("Analyser Worker error", error=str(e))
+            try:
+                await r.aclose()
+            except Exception:
+                pass
             await asyncio.sleep(2)
+            r = await get_async_redis()
 
 
 async def _handle_analyser(r, detection_result: dict):

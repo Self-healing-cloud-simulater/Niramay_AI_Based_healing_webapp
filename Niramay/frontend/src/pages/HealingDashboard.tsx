@@ -20,6 +20,7 @@ import HealingActionsPanel from '../components/HealingActions';
 import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
 import PipelineStageIndicator from '../components/PipelineStageIndicator';
+import EscalationEmailSettings from '../components/EscalationEmailSettings';
 
 // Empty string routes all requests through the Vite proxy (/api → niramay-backend:8000).
 // Never use VITE_API_URL here — the browser cannot resolve the docker container hostname.
@@ -435,6 +436,9 @@ export default function HealingDashboard() {
 
         {/* ── Pipeline Stage Indicator ── */}
         <PipelineStageIndicator />
+
+        {/* ── Escalation Email Settings ── */}
+        <EscalationEmailSettings />
 
         {/* ── Stat Row ── */}
         <section

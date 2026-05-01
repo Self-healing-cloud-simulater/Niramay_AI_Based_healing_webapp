@@ -19,6 +19,7 @@ from datetime import datetime, timezone, timedelta
 from app.core.config import settings
 from app.core.redis_client import get_async_redis
 from app.ingestion.opensearch_client import opensearch_writer
+from app.reporting.email_service import send_escalation_email
 
 logger = structlog.get_logger(__name__)
 
@@ -277,21 +278,35 @@ async def verification_worker_loop():
                     pv["outcomes"].append("FAILURE")
 
                     if pv["attempts"] >= MAX_RETRY_ATTEMPTS:
-                        # Generate escalation alert
-                        await _escalate(r, pv, detection_id)
+                        # Generate escalation alert + send email
+                        email_sent = await _escalate(
+                            r, pv, detection_id
+                        )
 
-                        # Update pipeline stage
+                        # Update pipeline stage with email status
+                        stage_name = (
+                            "healing_failed_email_sent"
+                            if email_sent
+                            else "healing_failed_escalated"
+                        )
+                        stage_msg = (
+                            "Healing failed after 3 attempts, "
+                            "developer notified via email"
+                            if email_sent
+                            else "Healing failed after 3 attempts, "
+                                 "escalated (email not configured)"
+                        )
                         try:
                             await r.set(
                                 settings.PIPELINE_STAGE_KEY,
                                 json.dumps({
-                                    "stage": "healing_failed_escalated",
+                                    "stage": stage_name,
                                     "timestamp": datetime.now(
                                         timezone.utc).isoformat(),
-                                    "message": "Healing failed after "
-                                               "3 attempts, escalated",
+                                    "message": stage_msg,
                                     "service": pv["service"],
                                     "attempts": MAX_RETRY_ATTEMPTS,
+                                    "email_sent": email_sent,
                                 })
                             )
                         except Exception:
@@ -353,13 +368,36 @@ async def verification_worker_loop():
         except asyncio.CancelledError:
             logger.info("Verification worker cancelled")
             break
+        except (ConnectionError, OSError) as e:
+            logger.warning(
+                "Verification worker: Redis connection lost, reconnecting",
+                error=str(e)
+            )
+            try:
+                await r.aclose()
+            except Exception:
+                pass
+            await asyncio.sleep(5)
+            r = await get_async_redis()
         except Exception as e:
             logger.error("Verification worker error", error=str(e))
+            try:
+                await r.aclose()
+            except Exception:
+                pass
             await asyncio.sleep(5)
+            r = await get_async_redis()
 
 
-async def _escalate(r, pv: dict, detection_id: str):
-    """Generate and store an escalation alert after max retries."""
+async def _escalate(r, pv: dict, detection_id: str) -> bool:
+    """
+    Generate and store an escalation alert after max retries.
+    Also sends an email notification to the developer.
+
+    Returns True if email was sent successfully, False otherwise.
+    """
+    escalated_at = datetime.now(timezone.utc)
+
     escalation = {
         "type": "escalation",
         "service": pv["service"],
@@ -368,7 +406,7 @@ async def _escalate(r, pv: dict, detection_id: str):
         "attempts": pv["attempts"],
         "healing_actions_tried": pv["healing_actions_tried"],
         "outcomes": pv["outcomes"],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": escalated_at.isoformat(),
         "message": (
             f"Healing failed after {pv['attempts']} attempts for "
             f"{pv['service']}:{pv['endpoint']}. "
@@ -377,6 +415,7 @@ async def _escalate(r, pv: dict, detection_id: str):
         ),
     }
 
+    # Step 1: Push escalation alert to Redis
     try:
         await r.lpush(ESCALATION_KEY, json.dumps(escalation))
         await r.ltrim(ESCALATION_KEY, 0, 99)
@@ -390,6 +429,57 @@ async def _escalate(r, pv: dict, detection_id: str):
         endpoint=pv["endpoint"],
         attempts=pv["attempts"],
     )
+
+    # Step 2: Send escalation email to developer
+    # Read recipient from Redis (set by frontend UI),
+    # fall back to config default
+    email_sent = False
+    try:
+        recipient_from_redis = await r.get("escalation:email_to")
+        if isinstance(recipient_from_redis, bytes):
+            recipient_from_redis = recipient_from_redis.decode()
+        recipient = (
+            recipient_from_redis
+            if recipient_from_redis
+            else None
+        )
+
+        email_sent = await send_escalation_email(
+            {
+                "service": pv["service"],
+                "endpoint": pv["endpoint"],
+                "failure_tag": pv["failure_tag"],
+                "attempts": pv["attempts"],
+                "healing_actions_tried": pv[
+                    "healing_actions_tried"
+                ],
+                "outcomes": pv["outcomes"],
+                "escalated_at": escalated_at.strftime(
+                    "%Y-%m-%d %H:%M:%S UTC"
+                ),
+            },
+            recipient_override=recipient,
+        )
+        if email_sent:
+            logger.info(
+                "Escalation email sent to developer",
+                detection_id=detection_id,
+                to=settings.ESCALATION_EMAIL_TO,
+            )
+        else:
+            logger.info(
+                "Escalation email not sent "
+                "(SMTP disabled or failed)",
+                detection_id=detection_id,
+            )
+    except Exception as e:
+        logger.error(
+            "Failed to send escalation email",
+            detection_id=detection_id,
+            error=str(e),
+        )
+
+    return email_sent
 
 
 def start_verification_worker():
