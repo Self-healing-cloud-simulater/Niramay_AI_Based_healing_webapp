@@ -150,7 +150,8 @@ async def get_pipeline_stage():
                     stage = stage_data.get("stage", "")
                     terminal_stages = {
                         "healing_complete",
-                        "healing_failed_escalated"
+                        "healing_failed_escalated",
+                        "healing_failed_email_sent",
                     }
                     if elapsed > 60 and stage not in terminal_stages:
                         stage_data["stale"] = True
@@ -261,6 +262,46 @@ async def get_healing_actions(limit: int = Query(50, ge=1, le=1000)):
         return {"actions": actions, "fingerprint": fingerprint, "count": len(actions)}
     except Exception:
         return {"actions": [], "fingerprint": "empty", "count": 0}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ESCALATION EMAIL SETTINGS
+# ──────────────────────────────────────────────────────────────────────────────
+
+ESCALATION_EMAIL_REDIS_KEY = "escalation:email_to"
+
+
+@router.get("/escalation/email", tags=["Escalation"])
+async def get_escalation_email():
+    """Get the currently configured escalation email address."""
+    try:
+        email = redis_client.get(ESCALATION_EMAIL_REDIS_KEY)
+        return {"email": email or ""}
+    except Exception:
+        return {"email": ""}
+
+
+@router.post("/escalation/email", tags=["Escalation"])
+async def set_escalation_email(request: Request):
+    """
+    Set the developer email address for escalation alerts.
+    When healing fails after 3 attempts, an email is sent
+    to this address.
+    """
+    try:
+        body = await request.json()
+        email = body.get("email", "").strip()
+        if not email:
+            return {"success": False, "error": "Email address is required"}
+        # Basic validation
+        if "@" not in email or "." not in email:
+            return {"success": False, "error": "Invalid email address"}
+        redis_client.set(ESCALATION_EMAIL_REDIS_KEY, email)
+        logger.info("Escalation email updated", email=email)
+        return {"success": True, "email": email}
+    except Exception as e:
+        logger.error("Failed to set escalation email", error=str(e))
+        return {"success": False, "error": str(e)}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

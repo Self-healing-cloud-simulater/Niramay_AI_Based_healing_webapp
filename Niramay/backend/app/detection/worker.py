@@ -66,6 +66,8 @@ async def detection_worker_loop():
     """
     Main async loop — pops logs from Redis, runs detection,
     dispatches results to Redis + OpenSearch.
+
+    Automatically reconnects if the Redis connection goes stale.
     """
     logger.info("Detection Worker started")
     r = await get_async_redis()
@@ -102,9 +104,26 @@ async def detection_worker_loop():
         except asyncio.CancelledError:
             logger.info("Detection worker cancelled")
             break
+        except (ConnectionError, OSError) as e:
+            logger.warning(
+                "Detection worker: Redis connection lost, reconnecting",
+                error=str(e)
+            )
+            try:
+                await r.aclose()
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+            r = await get_async_redis()
         except Exception as e:
             logger.error("Detection worker error", error=str(e))
+            # Reconnect on any unexpected error to avoid stuck loops
+            try:
+                await r.aclose()
+            except Exception:
+                pass
             await asyncio.sleep(2)
+            r = await get_async_redis()
 
 
 async def _handle_anomaly(r, detection_result: dict):

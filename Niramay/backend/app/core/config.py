@@ -55,6 +55,17 @@ class Settings(BaseSettings):
     CRAVE_DEVELOPER_EMAIL: str = "developer@example.com"
     CRAVE_DEVELOPER_PASSWORD: str = "developer123"
 
+    # Email Escalation (SMTP)
+    # Set SMTP_ENABLED=True and configure credentials to
+    # receive email alerts when healing fails after 3 attempts
+    SMTP_ENABLED: bool = False
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None  # Gmail App Password
+    SMTP_FROM_EMAIL: str = "niramay-alerts@example.com"
+    ESCALATION_EMAIL_TO: str = "developer@example.com"
+
     # Healing executor timeout
     COMPONENT_A_TIMEOUT_SECONDS: int = 30
 

@@ -19,6 +19,7 @@ import HealingActionsPanel from '../components/HealingActions';
 import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
 import PipelineStageIndicator from '../components/PipelineStageIndicator';
+import EscalationEmailSettings from '../components/EscalationEmailSettings';
 import PipelineProgressBar from '../components/PipelineProgressBar';
 import LogsPanel from '../components/LogsPanel';
 import PipelineArtifactCards from '../components/PipelineArtifactCards';
@@ -443,6 +444,9 @@ export default function HealingDashboard() {
 
         {/* ── Pipeline Stage Indicator (legacy) ── */}
         <PipelineStageIndicator />
+
+        {/* ── Escalation Email Settings ── */}
+        <EscalationEmailSettings />
 
         {/* ── Stat Row ── */}
         <section
