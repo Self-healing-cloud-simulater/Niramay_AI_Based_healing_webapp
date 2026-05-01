@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
 import { useTheme, createRipple, type ObservationLog, type AnomalyLog, type HealingAction } from '../designSystem';
 import { useNiramayData, usePipelineStage, useConsumerControl, useHealingToggle } from '../hooks/useNiramayData';
@@ -16,11 +16,15 @@ import ThemeToggle from '../components/Toggle';
 import ObservationFeed from '../components/ObservationFeed';
 import DetectionAlerts from '../components/DetectionAlerts';
 import HealingActionsPanel from '../components/HealingActions';
-
 import { IncidentReportsPanel } from '../components/IncidentReportsPanel';
 import { SkeletonStatCard } from '../components/SkeletonBlock';
 import PipelineStageIndicator from '../components/PipelineStageIndicator';
 import EscalationEmailSettings from '../components/EscalationEmailSettings';
+import PipelineProgressBar from '../components/PipelineProgressBar';
+import LogsPanel from '../components/LogsPanel';
+import PipelineArtifactCards from '../components/PipelineArtifactCards';
+import ManualHealingPanel from '../components/ManualHealingPanel';
+import OpenSearchSearchPanel from '../components/OpenSearchSearchPanel';
 
 // Empty string routes all requests through the Vite proxy (/api → niramay-backend:8000).
 // Never use VITE_API_URL here — the browser cannot resolve the docker container hostname.
@@ -242,6 +246,7 @@ export default function HealingDashboard() {
           {/* Nav links */}
           <button onClick={() => navigate('/')} className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}>Home</button>
           <button onClick={() => navigate('/visualizer')} className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)' }}>Live View</button>
+          <Link to="/reports" className="btn-ghost" style={{ padding: '4px 12px', fontSize: 'var(--text-xs)', color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Reports</Link>
 
           {/* Live indicator */}
           <button
@@ -434,7 +439,10 @@ export default function HealingDashboard() {
           </div>
         </section>
 
-        {/* ── Pipeline Stage Indicator ── */}
+        {/* ── Pipeline Progress Bar (Feature 4) ── */}
+        <PipelineProgressBar />
+
+        {/* ── Pipeline Stage Indicator (legacy) ── */}
         <PipelineStageIndicator />
 
         {/* ── Escalation Email Settings ── */}
@@ -491,6 +499,26 @@ export default function HealingDashboard() {
             <IncidentReportsPanel reports={incidentReports} />
           </div>
         </div>
+
+        {/* ── Detection OpenSearch search (Feature 5b) ── */}
+        <div data-aos="fade-up" style={{ marginTop: 'var(--space-6)' }}>
+          <div className="glass card-glass" style={{ padding: 'var(--space-5) var(--space-6)', borderRadius: 'var(--radius-xl)' }}>
+            <OpenSearchSearchPanel />
+          </div>
+        </div>
+
+        {/* ── Logs Panel (Feature 1) ── */}
+        <div style={{ marginTop: 'var(--space-6)' }}>
+          <LogsPanel />
+        </div>
+
+        {/* ── Pipeline Artifact Cards (Feature 2) ── */}
+        <div style={{ marginTop: 'var(--space-6)' }}>
+          <PipelineArtifactCards />
+        </div>
+
+        {/* ── Manual Healing Panel — slides in from right when mode = manual (Feature 6) ── */}
+        <ManualHealingPanel />
       </main>
 
       {/* ═══ Back to Top ═══ */}

@@ -37,11 +37,13 @@ async def dispatcher_worker_loop():
 
     while True:
         try:
-            result = await r.brpop(DISPATCHER_QUEUE_KEY, timeout=5)
+            # Non-blocking pop to avoid uvicorn/aioredis brpop deadlock bug
+            result = await r.lpop(DISPATCHER_QUEUE_KEY)
             if result is None:
+                await asyncio.sleep(0.5)
                 continue
-
-            _, raw = result
+                
+            raw = result
             try:
                 machine_alert = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
