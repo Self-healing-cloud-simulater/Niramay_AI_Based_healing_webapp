@@ -2,10 +2,13 @@
  * usePipelineEvents — Polls /api/v1/pipeline/events every 2s.
  * Returns the last N pipeline stage transition events and the current active stage label.
  * Used by PipelineProgressBar (Feature 4).
+ *
+ * Also fires toast notifications on stage transitions (Feature 3).
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { PipelineEvent } from '../designSystem';
+import { useToast } from '../components/ToastNotification';
 
 const STAGE_LABELS: Record<string, string> = {
   stage_1_complete: 'Ingestion',
@@ -16,6 +19,34 @@ const STAGE_LABELS: Record<string, string> = {
   stage_4_healing_complete: 'Healing',
   healing_complete: 'Complete',
   healing_failed_escalated: 'Failed',
+};
+
+/**
+ * Human-readable label for toast notifications.
+ */
+const STAGE_FRIENDLY_NAMES: Record<string, string> = {
+  stage_1_complete: 'Ingestion',
+  stage_2_complete: 'Detection',
+  stage_3_causal_engine_running: 'Causal Analysis',
+  stage_3_complete: 'Analysis',
+  stage_4_healing_executing: 'Healing Execution',
+  stage_4_healing_complete: 'Healing',
+  healing_complete: 'Verification',
+  healing_failed_escalated: 'Escalation',
+};
+
+/**
+ * Maps current stage to the NEXT stage that is starting.
+ */
+const NEXT_STAGE_LABEL: Record<string, string> = {
+  stage_1_complete: 'Detection',
+  stage_2_complete: 'Causal Analysis',
+  stage_3_causal_engine_running: 'Analysis Completion',
+  stage_3_complete: 'Healing Execution',
+  stage_4_healing_executing: 'Healing Verification',
+  stage_4_healing_complete: 'Verification',
+  healing_complete: '',    // terminal — pipeline complete
+  healing_failed_escalated: '', // terminal — escalated
 };
 
 export type NodeState = 'idle' | 'active' | 'completed' | 'failed';
@@ -71,6 +102,10 @@ export function usePipelineEvents(enabled = true) {
     ['Ingestion', 'Detection', 'Analysis', 'Healing', 'Verification'].map(label => ({ label, state: 'idle' as NodeState }))
   );
 
+  // Stage transition tracking for toast notifications
+  const prevStageRef = useRef<string | null>(null);
+  const { addToast } = useToast();
+
   const fetchEvents = useCallback(async () => {
     try {
       const [eventsRes, stageRes] = await Promise.allSettled([
@@ -78,26 +113,53 @@ export function usePipelineEvents(enabled = true) {
         fetch('/api/v1/pipeline/stage'),
       ]);
 
+      let fetchedEvents: PipelineEvent[] = [];
       if (eventsRes.status === 'fulfilled' && eventsRes.value.ok) {
-        const data: PipelineEvent[] = await eventsRes.value.json();
-        setEvents(data);
+        fetchedEvents = await eventsRes.value.json();
+        setEvents(fetchedEvents);
       }
 
       if (stageRes.status === 'fulfilled' && stageRes.value.ok) {
-        const stage = await stageRes.value.json();
-        const s = stage?.stage ?? null;
+        const stageData = await stageRes.value.json();
+        const s: string | null = stageData?.stage ?? null;
         setCurrentStage(s);
-        
-        let fetchedEvents = events;
-        if (eventsRes.status === 'fulfilled' && eventsRes.value.ok) {
-           fetchedEvents = await eventsRes.value.clone().json();
-        }
         setNodeStates(deriveNodeStates(s, fetchedEvents));
+
+        // ── Stage Transition Toast Notifications ──
+        if (s && s !== prevStageRef.current && s !== 'idle' && s !== 'unknown') {
+          const prevStage = prevStageRef.current;
+          prevStageRef.current = s;
+
+          // Only fire toasts after we have a previous stage (not on initial load)
+          if (prevStage && prevStage !== 'idle' && prevStage !== 'unknown') {
+            const completedName = STAGE_FRIENDLY_NAMES[prevStage] || prevStage;
+            const nextName = NEXT_STAGE_LABEL[prevStage];
+
+            if (s === 'healing_complete') {
+              addToast('✅ Pipeline Complete — All stages finished successfully', 'success');
+            } else if (s === 'healing_failed_escalated') {
+              addToast('⚠️ Healing Failed — Escalated for manual review', 'error');
+            } else if (nextName) {
+              addToast(`${completedName} Complete — ${nextName} has started`, 'info');
+            } else {
+              const stageName = STAGE_FRIENDLY_NAMES[s] || s;
+              addToast(`Stage transition: ${stageName} is now active`, 'info');
+            }
+          } else if (!prevStage) {
+            // First stage detected — pipeline just started
+            const stageName = STAGE_FRIENDLY_NAMES[s] || s;
+            addToast(`Pipeline active — ${stageName} in progress`, 'info');
+          }
+        }
+        // Also track when stage goes to idle/null from an active stage
+        if ((!s || s === 'idle') && prevStageRef.current && prevStageRef.current !== 'idle' && prevStageRef.current !== 'unknown') {
+          prevStageRef.current = s;
+        }
       }
     } catch {
       // Non-fatal — silently ignore
     }
-  }, []);
+  }, [addToast]);
 
   useEffect(() => {
     if (!enabled) return;

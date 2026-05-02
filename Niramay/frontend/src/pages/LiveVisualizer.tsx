@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Navbar from '../components/layout/Navbar';
+import PipelineProgressBar from '../components/PipelineProgressBar';
 import { useNiramayData } from '../hooks/useNiramayData';
 import { useTheme, statusDotClass, timeAgo, createRipple } from '../designSystem';
 
@@ -860,6 +861,16 @@ export default function LiveVisualizer() {
             lastRefresh={data.lastRefresh}
             fetchData={data.fetchData}
           />
+        </motion.div>
+
+        {/* Pipeline Stage Indicator — reused from Dashboard */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.15 }}
+          style={{ marginBottom: 'var(--space-6)' }}
+        >
+          <PipelineProgressBar />
         </motion.div>
 
         {/* Pipeline: 3 stages + connectors */}
