@@ -254,18 +254,27 @@ async def verification_worker_loop():
 
                     # Update pipeline stage
                     try:
+                        stage_val = "healing_complete"
+                        msg_val = "Healing complete, system healthy"
+                        timestamp_val = datetime.now(timezone.utc).isoformat()
                         await r.set(
                             settings.PIPELINE_STAGE_KEY,
                             json.dumps({
-                                "stage": "healing_complete",
-                                "timestamp": datetime.now(
-                                    timezone.utc).isoformat(),
-                                "message": "Healing complete, "
-                                           "system healthy",
+                                "stage": stage_val,
+                                "timestamp": timestamp_val,
+                                "message": msg_val,
                                 "service": pv["service"],
                                 "time_to_heal": time_to_heal,
                             })
                         )
+                        event = {
+                            "event_type": "verification_success",
+                            "stage": stage_val,
+                            "timestamp": timestamp_val,
+                            "message": msg_val,
+                        }
+                        await r.lpush("pipeline:events", json.dumps(event))
+                        await r.ltrim("pipeline:events", 0, 99)
                     except Exception:
                         pass
 
@@ -297,18 +306,26 @@ async def verification_worker_loop():
                                  "escalated (email not configured)"
                         )
                         try:
+                            timestamp_val = datetime.now(timezone.utc).isoformat()
                             await r.set(
                                 settings.PIPELINE_STAGE_KEY,
                                 json.dumps({
                                     "stage": stage_name,
-                                    "timestamp": datetime.now(
-                                        timezone.utc).isoformat(),
+                                    "timestamp": timestamp_val,
                                     "message": stage_msg,
                                     "service": pv["service"],
                                     "attempts": MAX_RETRY_ATTEMPTS,
                                     "email_sent": email_sent,
                                 })
                             )
+                            event = {
+                                "event_type": "verification_failed",
+                                "stage": stage_name,
+                                "timestamp": timestamp_val,
+                                "message": stage_msg,
+                            }
+                            await r.lpush("pipeline:events", json.dumps(event))
+                            await r.ltrim("pipeline:events", 0, 99)
                         except Exception:
                             pass
 
