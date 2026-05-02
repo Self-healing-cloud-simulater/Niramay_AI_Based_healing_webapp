@@ -14,6 +14,20 @@ Storm Prevention (two layers):
     Layer 2 — Healing Cooldown: 90s Redis-backed cooldown
         after healing to prevent rapid successive heals.
     Retries (is_retry=True) bypass both layers entirely.
+
+Bug fixes applied:
+    FIX 1 — _process_window: batched records for alerts[1:]
+        are now written AFTER _handle_dispatcher returns,
+        not before. Previously, records were written with
+        "Healing triggered via representative alert" even
+        when the cooldown suppressed the heal.
+    FIX 2 — _write_batched_record: added healing_triggered
+        parameter so the message is accurate in both the
+        above-threshold and below-threshold branches.
+    FIX 3 — _handle_dispatcher: moved pipeline stage update
+        ("stage_4_healing_executing") to AFTER the manual
+        mode check. Previously the stage was set to
+        "executing" even when healing went to pending_approval.
 """
 import asyncio
 import json
@@ -143,6 +157,11 @@ async def _process_window(r, alert_buffer: list):
 
     If < MIN_ALERTS_TO_HEAL alerts, discard the window
     but still write BATCHED records for audit completeness.
+
+    FIX 1: _handle_dispatcher is called BEFORE writing
+    batched records for alerts[1:], so the message in
+    those records is always accurate regardless of whether
+    the cooldown suppressed the heal or not.
     """
     batch_size = len(alert_buffer)
 
@@ -156,16 +175,19 @@ async def _process_window(r, alert_buffer: list):
         # Use the first alert as representative
         representative_alert = alert_buffer[0]
 
+        # FIX 1: Trigger healing FIRST, then write batched
+        # records. Previously batched records were written
+        # before _handle_dispatcher, so they claimed
+        # "Healing triggered" even when cooldown suppressed
+        # the heal.
+        await _handle_dispatcher(r, representative_alert)
+
         # Write BATCHED records for all non-representative
-        # alerts (index 1+)
+        # alerts (index 1+) after healing attempt completes
         for alert in alert_buffer[1:]:
             await _write_batched_record(
-                r, alert, batch_size
+                r, alert, batch_size, healing_triggered=True
             )
-
-        # Trigger healing for the representative alert
-        # (cooldown check happens inside _handle_dispatcher)
-        await _handle_dispatcher(r, representative_alert)
     else:
         # Below threshold — write all as BATCHED (no heal)
         logger.info(
@@ -174,29 +196,47 @@ async def _process_window(r, alert_buffer: list):
             alerts_in_window=batch_size,
             threshold=MIN_ALERTS_TO_HEAL,
         )
+        # FIX 2: Pass healing_triggered=False so the message
+        # accurately reflects that no healing occurred
         for alert in alert_buffer:
             await _write_batched_record(
-                r, alert, batch_size
+                r, alert, batch_size, healing_triggered=False
             )
 
 
 async def _write_batched_record(
-    r, machine_alert: dict, batch_size: int
+    r, machine_alert: dict, batch_size: int,
+    healing_triggered: bool = True
 ):
     """
     Write a BATCHED audit record to healing:actions
     for an alert that was part of a batch but not
     selected as the representative.
+
+    FIX 2: healing_triggered parameter controls the message
+    so it is accurate in both the above-threshold branch
+    (healing fired via representative) and the
+    below-threshold branch (no healing at all).
     """
+    if healing_triggered:
+        message = (
+            f"Alert batched in tumbling window "
+            f"({batch_size} alerts in batch). "
+            f"Healing triggered via representative alert."
+        )
+    else:
+        message = (
+            f"Alert batched in tumbling window "
+            f"({batch_size} alerts in batch). "
+            f"Below threshold ({MIN_ALERTS_TO_HEAL}) — "
+            f"no healing triggered."
+        )
+
     try:
         batched_record = {
             "healing_action": "batched_storm_prevention",
             "status": "batched",
-            "message": (
-                f"Alert batched in tumbling window "
-                f"({batch_size} alerts in batch). "
-                f"Healing triggered via representative alert."
-            ),
+            "message": message,
             "error": None,
             "scenarios_disabled": [],
             "container_restarted": None,
@@ -257,15 +297,19 @@ async def _handle_dispatcher(r, machine_alert: dict):
     """
     Core Dispatcher Worker logic.
 
-    0. Check if healing is enabled
-    1. Check healing cooldown (Layer 2 — skip for retries)
-    2. Execute healing via Component A
-    3. Set cooldown key in Redis (skip for retries)
-    4. Store healing record to Redis healing:actions
-    5. Update pipeline stage key
+    0.   Check if healing is enabled
+    0.5. Check healing mode (autonomous vs manual)
+    0.8. Update pipeline stage: healing executing
+         (only reached after manual mode check passes)
+    1.   Layer 2: Healing Cooldown Check (skip for retries)
+    2.   Execute healing via Component A
+    3.   Set cooldown key in Redis (skip for retries)
+    4.   Store healing record to Redis healing:actions
+    5.   Update pipeline stage: healing complete
     """
     alert_id = machine_alert.get("alert_id", "unknown")
     detection_id = machine_alert.get("detection_id", "unknown")
+    service = machine_alert.get("service", "unknown")
     is_retry = machine_alert.get("is_retry", False)
 
     logger.info(
@@ -282,7 +326,6 @@ async def _handle_dispatcher(r, machine_alert: dict):
                 "Dispatcher Worker: healing disabled, skipping",
                 alert_id=alert_id
             )
-            # Store a skipped record so the frontend sees it
             skipped_record = {
                 "healing_action": "healing_disabled",
                 "status": "skipped",
@@ -295,7 +338,7 @@ async def _handle_dispatcher(r, machine_alert: dict):
                     timezone.utc).isoformat(),
                 "detection_id": detection_id,
                 "alert_id": alert_id,
-                "service": machine_alert.get("service"),
+                "service": service,
                 "endpoint": machine_alert.get("endpoint"),
                 "failure_tag": machine_alert.get(
                     "failure_tag", "none"),
@@ -315,32 +358,11 @@ async def _handle_dispatcher(r, machine_alert: dict):
     except Exception:
         pass  # If Redis check fails, proceed with healing
 
-    # -- 0.5 Update pipeline stage: healing executing --
-    try:
-        stage_val = "stage_4_healing_executing"
-        msg_val = "Healing is executing"
-        timestamp_val = datetime.now(timezone.utc).isoformat()
-        await r.set(
-            settings.PIPELINE_STAGE_KEY,
-            json.dumps({
-                "stage": stage_val,
-                "timestamp": timestamp_val,
-                "message": msg_val,
-                "service": machine_alert.get("service"),
-            })
-        )
-        event = {
-            "event_type": "healing_start",
-            "stage": stage_val,
-            "timestamp": timestamp_val,
-            "message": msg_val,
-        }
-        await r.lpush("pipeline:events", json.dumps(event))
-        await r.ltrim("pipeline:events", 0, 99)
-    except Exception:
-        pass
-
-    # -- 0.8 Check healing mode --
+    # -- 0.5. Check healing mode --
+    # FIX 3: Manual mode check is now BEFORE the pipeline
+    # stage update. Previously "stage_4_healing_executing"
+    # was written before this check, so manual mode
+    # incorrectly showed "executing" on the frontend.
     try:
         raw_mode = await r.get("healing:mode")
         mode = json.loads(raw_mode).get("mode") if raw_mode else "autonomous"
@@ -356,17 +378,63 @@ async def _handle_dispatcher(r, machine_alert: dict):
             "status": "pending_approval",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-        await r.lpush("healing:pending_actions", json.dumps(pending_action))
+        await r.lpush(
+            "healing:pending_actions",
+            json.dumps(pending_action)
+        )
         await r.ltrim("healing:pending_actions", 0, 99)
-        logger.info("Dispatcher Worker: manual mode, pushed to pending actions", alert_id=alert_id)
+        # Set accurate stage for manual mode
+        try:
+            await r.set(
+                settings.PIPELINE_STAGE_KEY,
+                json.dumps({
+                    "stage": "stage_4_awaiting_approval",
+                    "timestamp": datetime.now(
+                        timezone.utc).isoformat(),
+                    "message": "Healing queued — awaiting manual approval",
+                    "service": service,
+                })
+            )
+        except Exception:
+            pass
+        logger.info(
+            "Dispatcher Worker: manual mode, "
+            "pushed to pending actions",
+            alert_id=alert_id
+        )
         return
 
-    # -- 1. Execute healing via Component A --
+    # -- 0.8. Update pipeline stage: healing executing --
+    # Only reached in autonomous mode after all early-return
+    # checks above have passed.
+    try:
+        stage_val = "stage_4_healing_executing"
+        msg_val = "Healing is executing"
+        timestamp_val = datetime.now(timezone.utc).isoformat()
+        await r.set(
+            settings.PIPELINE_STAGE_KEY,
+            json.dumps({
+                "stage": stage_val,
+                "timestamp": timestamp_val,
+                "message": msg_val,
+                "service": service,
+            })
+        )
+        event = {
+            "event_type": "healing_start",
+            "stage": stage_val,
+            "timestamp": timestamp_val,
+            "message": msg_val,
+        }
+        await r.lpush("pipeline:events", json.dumps(event))
+        await r.ltrim("pipeline:events", 0, 99)
+    except Exception:
+        pass
+
     # -- 1. Layer 2: Healing Cooldown Check --
     # Retries bypass cooldown entirely — they are
     # intentional heals pushed after cooldown expires
     if not is_retry:
-        service = machine_alert.get("service", "unknown")
         cooldown_key = f"{COOLDOWN_KEY_PREFIX}{service}"
         try:
             cooldown_active = await r.get(cooldown_key)
@@ -422,11 +490,10 @@ async def _handle_dispatcher(r, machine_alert: dict):
     # -- 2. Execute healing via Component A --
     healing_result = await _execute_healing(machine_alert)
 
-    # -- 3. Set cooldown key after successful healing --
+    # -- 3. Set cooldown key after healing executes --
     # Retries don't set cooldown — the verification worker
     # manages retry timing independently
     if not is_retry:
-        service = machine_alert.get("service", "unknown")
         cooldown_key = f"{COOLDOWN_KEY_PREFIX}{service}"
         try:
             await r.set(
@@ -461,7 +528,7 @@ async def _handle_dispatcher(r, machine_alert: dict):
             "executed_at": healing_result.get("executed_at"),
             "detection_id": detection_id,
             "alert_id": alert_id,
-            "service": machine_alert.get("service"),
+            "service": service,
             "endpoint": machine_alert.get("endpoint"),
             "failure_tag": machine_alert.get(
                 "failure_tag", "none"),
@@ -502,7 +569,7 @@ async def _handle_dispatcher(r, machine_alert: dict):
                 "healing_action": healing_result.get(
                     "healing_action"),
                 "status": healing_result.get("status"),
-                "service": machine_alert.get("service"),
+                "service": service,
             })
         )
         event = {
