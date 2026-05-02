@@ -22,6 +22,7 @@ import EscalationEmailSettings from '../components/EscalationEmailSettings';
 import PipelineProgressBar from '../components/PipelineProgressBar';
 import LogsPanel from '../components/LogsPanel';
 import PipelineArtifactCards from '../components/PipelineArtifactCards';
+import ReportPortal from '../components/ReportPortal';
 import ManualHealingPanel from '../components/ManualHealingPanel';
 import OpenSearchSearchPanel from '../components/OpenSearchSearchPanel';
 
@@ -511,6 +512,11 @@ export default function HealingDashboard() {
         {/* ── Pipeline Artifact Cards (Feature 2) ── */}
         <div style={{ marginTop: 'var(--space-6)' }}>
           <PipelineArtifactCards />
+        </div>
+
+        {/* ── Report Generation Portal (Section 1) ── */}
+        <div style={{ marginTop: 'var(--space-6)' }}>
+          <ReportPortal />
         </div>
 
         {/* ── Manual Healing Panel — slides in from right when mode = manual (Feature 6) ── */}
