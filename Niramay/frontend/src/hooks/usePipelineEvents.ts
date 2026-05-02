@@ -23,10 +23,11 @@ export type NodeState = 'idle' | 'active' | 'completed' | 'failed';
 export interface PipelineNodeStatus {
   label: string;
   state: NodeState;
+  timestamp?: string;
 }
 
 /** Maps the current pipeline stage string to per-node states for the 5-node bar. */
-function deriveNodeStates(currentStage: string | null): PipelineNodeStatus[] {
+function deriveNodeStates(currentStage: string | null, events: PipelineEvent[]): PipelineNodeStatus[] {
   const nodes: { label: string; matchStages: string[] }[] = [
     { label: 'Ingestion',    matchStages: ['stage_1_complete'] },
     { label: 'Detection',    matchStages: ['stage_2_complete'] },
@@ -50,12 +51,16 @@ function deriveNodeStates(currentStage: string | null): PipelineNodeStatus[] {
   const failed = currentStage === 'healing_failed_escalated';
 
   return nodes.map((node) => {
+    // Find the most recent event matching this node's stages
+    const nodeEvent = events.find(ev => node.matchStages.includes(ev.stage ?? ''));
+    const timestamp = nodeEvent?.timestamp;
+
     const nodeMaxIdx = Math.max(...node.matchStages.map(s => stageOrder.indexOf(s)));
-    if (currentIdx < 0) return { label: node.label, state: 'idle' };
-    if (failed && node.label === 'Verification') return { label: node.label, state: 'failed' };
-    if (currentIdx > nodeMaxIdx) return { label: node.label, state: 'completed' };
-    if (node.matchStages.includes(currentStage ?? '')) return { label: node.label, state: 'active' };
-    return { label: node.label, state: 'idle' };
+    if (currentIdx < 0) return { label: node.label, state: 'idle', timestamp };
+    if (failed && node.label === 'Verification') return { label: node.label, state: 'failed', timestamp };
+    if (currentIdx > nodeMaxIdx) return { label: node.label, state: 'completed', timestamp };
+    if (node.matchStages.includes(currentStage ?? '')) return { label: node.label, state: 'active', timestamp };
+    return { label: node.label, state: 'idle', timestamp };
   });
 }
 
@@ -69,7 +74,7 @@ export function usePipelineEvents(enabled = true) {
   const fetchEvents = useCallback(async () => {
     try {
       const [eventsRes, stageRes] = await Promise.allSettled([
-        fetch('/api/v1/pipeline/events?limit=8'),
+        fetch('/api/v1/pipeline/events?limit=20'),
         fetch('/api/v1/pipeline/stage'),
       ]);
 
@@ -82,7 +87,12 @@ export function usePipelineEvents(enabled = true) {
         const stage = await stageRes.value.json();
         const s = stage?.stage ?? null;
         setCurrentStage(s);
-        setNodeStates(deriveNodeStates(s));
+        
+        let fetchedEvents = events;
+        if (eventsRes.status === 'fulfilled' && eventsRes.value.ok) {
+           fetchedEvents = await eventsRes.value.clone().json();
+        }
+        setNodeStates(deriveNodeStates(s, fetchedEvents));
       }
     } catch {
       // Non-fatal — silently ignore
