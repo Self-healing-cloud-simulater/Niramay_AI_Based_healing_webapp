@@ -107,6 +107,42 @@ async def verification_worker_loop():
                     }
                     pending_verifications[detection_id] = pv
 
+                    # Emit verification-running pipeline stage
+                    # (only on first pickup of this detection_id)
+                    try:
+                        stage_val = "stage_6_verification_running"
+                        msg_val = (
+                            "Verification in progress \u2014 "
+                            "checking if anomaly is resolved"
+                        )
+                        timestamp_val = datetime.now(
+                            timezone.utc
+                        ).isoformat()
+                        await r.set(
+                            settings.PIPELINE_STAGE_KEY,
+                            json.dumps({
+                                "stage": stage_val,
+                                "timestamp": timestamp_val,
+                                "message": msg_val,
+                                "service": pv["service"],
+                            })
+                        )
+                        event = {
+                            "event_type": "verification_started",
+                            "stage": stage_val,
+                            "timestamp": timestamp_val,
+                            "message": msg_val,
+                        }
+                        await r.lpush(
+                            "pipeline:events",
+                            json.dumps(event)
+                        )
+                        await r.ltrim(
+                            "pipeline:events", 0, 99
+                        )
+                    except Exception:
+                        pass
+
                 # Check settling window
                 healing_action = action.get("healing_action", "unknown")
                 wait_seconds = SETTLING_WINDOWS.get(
@@ -255,7 +291,10 @@ async def verification_worker_loop():
                     # Update pipeline stage
                     try:
                         stage_val = "healing_complete"
-                        msg_val = "Healing complete, system healthy"
+                        msg_val = (
+                            "Verification complete \u2014 "
+                            "system is healthy and operational"
+                        )
                         timestamp_val = datetime.now(timezone.utc).isoformat()
                         await r.set(
                             settings.PIPELINE_STAGE_KEY,
@@ -275,6 +314,13 @@ async def verification_worker_loop():
                         }
                         await r.lpush("pipeline:events", json.dumps(event))
                         await r.ltrim("pipeline:events", 0, 99)
+                    except Exception:
+                        pass
+
+                    # Clear execution lock so system can heal
+                    # again for future incidents
+                    try:
+                        await r.delete("healing:execution_lock")
                     except Exception:
                         pass
 
@@ -326,6 +372,14 @@ async def verification_worker_loop():
                             }
                             await r.lpush("pipeline:events", json.dumps(event))
                             await r.ltrim("pipeline:events", 0, 99)
+                        except Exception:
+                            pass
+
+                        # Clear execution lock on escalation
+                        try:
+                            await r.delete(
+                                "healing:execution_lock"
+                            )
                         except Exception:
                             pass
 

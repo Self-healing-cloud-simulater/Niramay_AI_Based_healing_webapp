@@ -136,19 +136,39 @@ def _on_message(channel, method_frame, header_frame, body):
         if _log_count_since_stage_update >= _STAGE_UPDATE_INTERVAL:
             _log_count_since_stage_update = 0
             try:
-                stage_val = "stage_1_complete"
-                msg_val = "Log ingested and normalized"
-                r.set(
-                    settings.PIPELINE_STAGE_KEY,
-                    json.dumps({
-                        "stage": stage_val,
-                        "timestamp": datetime.now(
-                            timezone.utc).isoformat(),
-                        "message": msg_val
-                    })
-                )
-                from app.core.redis_client import push_pipeline_event
-                push_pipeline_event("ingestion_complete", stage_val, msg_val)
+                # Guard: only write stage_1_complete if pipeline
+                # is idle or still at stage_1. Never overwrite
+                # later stages (detection, healing, verification).
+                _safe_to_write = True
+                try:
+                    _current_raw = r.get(settings.PIPELINE_STAGE_KEY)
+                    if _current_raw:
+                        _current_stage = json.loads(
+                            _current_raw
+                        ).get("stage")
+                        _safe_to_write = _current_stage in (
+                            None, "idle", "unknown",
+                            "stage_1_complete",
+                        )
+                except Exception:
+                    pass  # If check fails, allow write
+
+                if _safe_to_write:
+                    stage_val = "stage_1_complete"
+                    msg_val = "Log ingested and normalized"
+                    r.set(
+                        settings.PIPELINE_STAGE_KEY,
+                        json.dumps({
+                            "stage": stage_val,
+                            "timestamp": datetime.now(
+                                timezone.utc).isoformat(),
+                            "message": msg_val
+                        })
+                    )
+                    from app.core.redis_client import push_pipeline_event
+                    push_pipeline_event(
+                        "ingestion_complete", stage_val, msg_val
+                    )
             except Exception:
                 pass  # Never block pipeline for UI updates
 

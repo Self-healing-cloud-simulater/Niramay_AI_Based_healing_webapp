@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { ThemeProvider } from './designSystem';
 import { ToastProvider } from './components/ToastNotification';
-import HealingModeModal from './components/HealingModeModal';
+
 import ModeSelectionScreen from './components/ModeSelectionScreen';
 import LandingPage from './pages/LandingPage';
 import LiveVisualizer from './pages/LiveVisualizer';
@@ -26,8 +26,7 @@ export default function App() {
         {/* Main app — only shown after mode selection */}
         {modeSelected && (
           <BrowserRouter>
-            {/* HealingModeModal is mounted here so it shows on ANY page */}
-            <HealingModeModal />
+
             <Routes>
               <Route path="/" element={<LandingPage />} />
               <Route path="/dashboard" element={<HealingDashboard />} />

@@ -358,6 +358,24 @@ async def _handle_dispatcher(r, machine_alert: dict):
     except Exception:
         pass  # If Redis check fails, proceed with healing
 
+    # -- 0.1. Check global execution lock (non-retries only) --
+    # After the first successful healing, this lock is set.
+    # All subsequent non-retry dispatches are silently skipped
+    # to prevent multiple healings. Retries from verification
+    # worker bypass this lock.
+    if not is_retry:
+        try:
+            exec_lock = await r.get("healing:execution_lock")
+            if exec_lock is not None:
+                logger.info(
+                    "Dispatcher Worker: healing locked "
+                    "(awaiting verification), skipping",
+                    alert_id=alert_id,
+                )
+                return  # Silent skip — no record written
+        except Exception:
+            pass  # If check fails, proceed
+
     # -- 0.5. Check healing mode --
     # FIX 3: Manual mode check is now BEFORE the pipeline
     # stage update. Previously "stage_4_healing_executing"
@@ -490,9 +508,9 @@ async def _handle_dispatcher(r, machine_alert: dict):
     # -- 2. Execute healing via Component A --
     healing_result = await _execute_healing(machine_alert)
 
-    # -- 3. Set cooldown key after healing executes --
-    # Retries don't set cooldown — the verification worker
-    # manages retry timing independently
+    # -- 3. Set cooldown key + global execution lock --
+    # Retries don't set cooldown or lock — the verification
+    # worker manages retry timing independently
     if not is_retry:
         cooldown_key = f"{COOLDOWN_KEY_PREFIX}{service}"
         try:
@@ -510,6 +528,19 @@ async def _handle_dispatcher(r, machine_alert: dict):
                 "Dispatcher Worker: failed to set cooldown",
                 error=str(e),
             )
+        # Set global execution lock — prevents all further
+        # non-retry heals until verification completes.
+        # TTL 600s as safety fallback.
+        try:
+            await r.set(
+                "healing:execution_lock", "1", ex=600
+            )
+            logger.info(
+                "Dispatcher Worker: execution lock set",
+                alert_id=alert_id,
+            )
+        except Exception:
+            pass
 
     # -- 4. Store healing result to Redis healing:actions --
     try:
@@ -555,10 +586,13 @@ async def _handle_dispatcher(r, machine_alert: dict):
             error=str(e)
         )
 
-    # -- 5. Update pipeline stage --
+    # -- 5. Update pipeline stage: cooldown --
     try:
-        stage_val = "stage_4_healing_complete"
-        msg_val = "Healing executed, verification starting"
+        stage_val = "stage_5_cooldown"
+        msg_val = (
+            "Healing complete — cooldown period active, "
+            "system stabilizing"
+        )
         timestamp_val = datetime.now(timezone.utc).isoformat()
         await r.set(
             settings.PIPELINE_STAGE_KEY,
