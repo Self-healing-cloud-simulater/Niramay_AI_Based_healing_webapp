@@ -204,13 +204,15 @@ async def _handle_anomaly(r, detection_result: dict):
 
     # ── 7. Update pipeline stage ──
     try:
+        stage_val = "stage_2_complete"
+        msg_val = "Anomaly detected, analysis starting"
+        timestamp_val = datetime.now(timezone.utc).isoformat()
         await r.set(
             settings.PIPELINE_STAGE_KEY,
             json.dumps({
-                "stage": "stage_2_complete",
-                "timestamp": datetime.now(
-                    timezone.utc).isoformat(),
-                "message": "Anomaly detected, analysis starting",
+                "stage": stage_val,
+                "timestamp": timestamp_val,
+                "message": msg_val,
                 "service": detection_result.get("service"),
                 "severity": detection_result.get("severity"),
                 "failure_tag": detection_result.get(
@@ -219,6 +221,15 @@ async def _handle_anomaly(r, detection_result: dict):
                     "anomaly_score"),
             })
         )
+        # Push pipeline event
+        event = {
+            "event_type": "detection_complete",
+            "stage": stage_val,
+            "timestamp": timestamp_val,
+            "message": msg_val,
+        }
+        await r.lpush("pipeline:events", json.dumps(event))
+        await r.ltrim("pipeline:events", 0, 99)
     except Exception:
         pass
 
