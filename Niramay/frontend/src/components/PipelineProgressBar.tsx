@@ -110,6 +110,16 @@ export default function PipelineProgressBar() {
               }}>
                 {node.label}
               </span>
+              {node.timestamp && (
+                <span style={{
+                  fontSize: 9, whiteSpace: 'nowrap',
+                  color: 'var(--color-text-tertiary)',
+                  fontFamily: 'var(--font-mono)',
+                  marginTop: -2,
+                }}>
+                  {formatEventTime(node.timestamp)}
+                </span>
+              )}
             </div>
             {idx < PIPELINE_NODES.length - 1 && (
               <div style={{

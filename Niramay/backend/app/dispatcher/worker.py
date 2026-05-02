@@ -315,6 +315,53 @@ async def _handle_dispatcher(r, machine_alert: dict):
     except Exception:
         pass  # If Redis check fails, proceed with healing
 
+    # -- 0.5 Update pipeline stage: healing executing --
+    try:
+        stage_val = "stage_4_healing_executing"
+        msg_val = "Healing is executing"
+        timestamp_val = datetime.now(timezone.utc).isoformat()
+        await r.set(
+            settings.PIPELINE_STAGE_KEY,
+            json.dumps({
+                "stage": stage_val,
+                "timestamp": timestamp_val,
+                "message": msg_val,
+                "service": machine_alert.get("service"),
+            })
+        )
+        event = {
+            "event_type": "healing_start",
+            "stage": stage_val,
+            "timestamp": timestamp_val,
+            "message": msg_val,
+        }
+        await r.lpush("pipeline:events", json.dumps(event))
+        await r.ltrim("pipeline:events", 0, 99)
+    except Exception:
+        pass
+
+    # -- 0.8 Check healing mode --
+    try:
+        raw_mode = await r.get("healing:mode")
+        mode = json.loads(raw_mode).get("mode") if raw_mode else "autonomous"
+    except Exception:
+        mode = "autonomous"
+
+    if mode == "manual":
+        import uuid
+        action_id = str(uuid.uuid4())
+        pending_action = {
+            "action_id": action_id,
+            "machine_alert": machine_alert,
+            "status": "pending_approval",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        await r.lpush("healing:pending_actions", json.dumps(pending_action))
+        await r.ltrim("healing:pending_actions", 0, 99)
+        logger.info("Dispatcher Worker: manual mode, pushed to pending actions", alert_id=alert_id)
+        return
+
+    # -- 1. Execute healing via Component A --
     # -- 1. Layer 2: Healing Cooldown Check --
     # Retries bypass cooldown entirely — they are
     # intentional heals pushed after cooldown expires
@@ -443,20 +490,29 @@ async def _handle_dispatcher(r, machine_alert: dict):
 
     # -- 5. Update pipeline stage --
     try:
+        stage_val = "stage_4_healing_complete"
+        msg_val = "Healing executed, verification starting"
+        timestamp_val = datetime.now(timezone.utc).isoformat()
         await r.set(
             settings.PIPELINE_STAGE_KEY,
             json.dumps({
-                "stage": "stage_4_healing_complete",
-                "timestamp": datetime.now(
-                    timezone.utc).isoformat(),
-                "message": "Healing executed, "
-                           "verification starting",
+                "stage": stage_val,
+                "timestamp": timestamp_val,
+                "message": msg_val,
                 "healing_action": healing_result.get(
                     "healing_action"),
                 "status": healing_result.get("status"),
                 "service": machine_alert.get("service"),
             })
         )
+        event = {
+            "event_type": "healing_ended",
+            "stage": stage_val,
+            "timestamp": timestamp_val,
+            "message": msg_val,
+        }
+        await r.lpush("pipeline:events", json.dumps(event))
+        await r.ltrim("pipeline:events", 0, 99)
     except Exception:
         pass
 

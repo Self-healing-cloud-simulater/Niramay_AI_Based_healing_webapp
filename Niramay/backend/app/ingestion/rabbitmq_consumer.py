@@ -136,15 +136,19 @@ def _on_message(channel, method_frame, header_frame, body):
         if _log_count_since_stage_update >= _STAGE_UPDATE_INTERVAL:
             _log_count_since_stage_update = 0
             try:
+                stage_val = "stage_1_complete"
+                msg_val = "Log ingested and normalized"
                 r.set(
                     settings.PIPELINE_STAGE_KEY,
                     json.dumps({
-                        "stage": "stage_1_complete",
+                        "stage": stage_val,
                         "timestamp": datetime.now(
                             timezone.utc).isoformat(),
-                        "message": "Log ingested and normalized"
+                        "message": msg_val
                     })
                 )
+                from app.core.redis_client import push_pipeline_event
+                push_pipeline_event("ingestion_complete", stage_val, msg_val)
             except Exception:
                 pass  # Never block pipeline for UI updates
 
