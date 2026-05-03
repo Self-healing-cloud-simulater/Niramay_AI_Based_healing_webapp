@@ -210,13 +210,13 @@ pipeline {
                 echo "Enabling Crave to Niramay RabbitMQ log forwarding..."
                 script {
                     def resp = sh(
-                        script: """
-                            curl -sf -X POST \\
-                                 --max-time 10 \\
-                                 -H "Authorization: Bearer ${env.CRAVE_DEV_TOKEN}" \\
-                                 -w '\\n%{http_code}' \\
-                                 ${env.CRAVE_URL}/api/v1/failure-simulator/rabbitmq/enable
-                        """,
+                        script: '''
+                            curl -sf -X POST \
+                                 --max-time 10 \
+                                 -H "Authorization: Bearer $CRAVE_DEV_TOKEN" \
+                                 -w '\n%{http_code}' \
+                                 http://crave-backend:8000/api/v1/failure-simulator/rabbitmq/enable
+                        ''',
                         returnStdout: true
                     ).trim()
                     echo "RabbitMQ toggle response: ${resp}"
@@ -224,9 +224,7 @@ pipeline {
                     if (httpCode != '200') {
                         echo "WARNING: Failed to enable RabbitMQ publishing (HTTP ${httpCode}). " +
                              "Tests that depend on the full pipeline may fail."
-                        // FIX: was error() which would abort — downgrade to warning
-                        // because the test suite handles a missing RabbitMQ connection
-                        // with individual test SKIPs rather than a hard error.
+                        // Downgraded from error() — test suite degrades gracefully per stage
                     }
                 }
                 sleep(5)
@@ -357,16 +355,16 @@ pipeline {
                     >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
             """
 
-            sh """
-                echo "" >> ${TEST_RESULTS_DIR}/debug_dump.txt
-                echo "--- Crave /api/v1/failure-simulator/status ---" \\
-                    >> ${TEST_RESULTS_DIR}/debug_dump.txt
-                curl -sf \\
-                     -H "Authorization: Bearer ${env.CRAVE_DEV_TOKEN}" \\
-                     ${env.CRAVE_URL}/api/v1/failure-simulator/status 2>&1 \\
-                    | python3 -m json.tool 2>/dev/null \\
-                    >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
-            """
+            sh '''
+                echo "" >> test-results/debug_dump.txt
+                echo "--- Crave /api/v1/failure-simulator/status ---" \
+                    >> test-results/debug_dump.txt
+                curl -sf \
+                     -H "Authorization: Bearer $CRAVE_DEV_TOKEN" \
+                     http://crave-backend:8000/api/v1/failure-simulator/status 2>&1 \
+                    | python3 -m json.tool 2>/dev/null \
+                    >> test-results/debug_dump.txt || true
+            '''
 
             archiveArtifacts(
                 artifacts: "${TEST_RESULTS_DIR}/debug_dump.txt",
@@ -378,22 +376,22 @@ pipeline {
 
         always {
             echo "=== Cleanup: Resetting Crave failure scenarios ==="
-            sh """
-                curl -sf -X POST \\
-                     --max-time 10 \\
-                     -H "Authorization: Bearer ${env.CRAVE_DEV_TOKEN}" \\
-                     ${env.CRAVE_URL}/api/v1/failure-simulator/reset \\
+            sh '''
+                curl -sf -X POST \
+                     --max-time 10 \
+                     -H "Authorization: Bearer $CRAVE_DEV_TOKEN" \
+                     http://crave-backend:8000/api/v1/failure-simulator/reset \
                      || echo "Warning: could not reset Crave scenarios (non-fatal)"
-            """
+            '''
 
             echo "=== Cleanup: Disabling Crave RabbitMQ publishing ==="
-            sh """
-                curl -sf -X POST \\
-                     --max-time 10 \\
-                     -H "Authorization: Bearer ${env.CRAVE_DEV_TOKEN}" \\
-                     ${env.CRAVE_URL}/api/v1/failure-simulator/rabbitmq/disable \\
+            sh '''
+                curl -sf -X POST \
+                     --max-time 10 \
+                     -H "Authorization: Bearer $CRAVE_DEV_TOKEN" \
+                     http://crave-backend:8000/api/v1/failure-simulator/rabbitmq/disable \
                      || echo "Warning: could not disable RabbitMQ toggle (non-fatal)"
-            """
+            '''
 
             echo "=== Pipeline complete ==="
         }
