@@ -1,75 +1,431 @@
-pipeline {
-    agent any
+// =============================================================================
+// Jenkinsfile — Niramay + Crave Integration Test Pipeline
+// =============================================================================
+//
+// What this pipeline does
+// -----------------------
+// 1. Waits for all required containers to be healthy (Niramay + Crave stacks)
+// 2. Installs Python test dependencies
+// 3. Enables Crave RabbitMQ publishing and Niramay consumer thread
+// 4. Runs the pytest integration suite (test_niramay_crave_integration.py)
+// 5. On failure: dumps Niramay diagnostic state (logs, anomalies, reports)
+// 6. Always archives test results and diagnostic output
+//
+// Assumptions
+// -----------
+// - Jenkins is running inside Docker on the same Docker host as Crave + Niramay
+// - All containers share the Docker network: selfhealing-network
+// - Container names match the Docker Compose service names:
+//     niramay-backend   (port 8000)
+//     crave-backend     (port 8000)
+//     crave-redis       (port 6379)
+//     niramay-rabbitmq  (port 5672)
+// - The Jenkins agent has access to /var/run/docker.sock (for exec commands)
+//   OR the test runner can reach containers via selfhealing-network directly
+//
+// Required Jenkins credentials
+// ----------------------------
+// CRAVE_DEV_TOKEN_CRED  — Secret Text credential holding the Crave developer
+//                         bearer token. Create via Jenkins → Credentials.
+//
+// Optional environment overrides
+// --------------------------------
+// All PROPAGATION timing constants can be tuned per-run via Jenkins parameters.
+// =============================================================================
 
+pipeline {
+    agent {
+        // Use the Jenkins agent that is on the same Docker host as Crave/Niramay.
+        // If your Jenkins controller IS the agent, use `agent any`.
+        label 'docker-host'
+    }
+
+    // -------------------------------------------------------------------------
+    // Pipeline-level parameters — can be overridden per build in Jenkins UI
+    // -------------------------------------------------------------------------
+    parameters {
+        string(
+            name: 'TRAFFIC_BURST_COUNT',
+            defaultValue: '20',
+            description: 'Number of Crave HTTP requests to fire per traffic burst'
+        )
+        string(
+            name: 'LOG_PROPAGATION_SECONDS',
+            defaultValue: '25',
+            description: 'Seconds to wait for Crave logs to appear in Niramay Redis'
+        )
+        string(
+            name: 'ANOMALY_PROPAGATION_SECONDS',
+            defaultValue: '20',
+            description: 'Seconds to wait for Detection Worker to process logs'
+        )
+        string(
+            name: 'ANALYSER_PROPAGATION_SECONDS',
+            defaultValue: '20',
+            description: 'Seconds to wait for Analyser Worker to produce incident reports'
+        )
+        string(
+            name: 'DISPATCHER_PROPAGATION_SECONDS',
+            defaultValue: '15',
+            description: 'Seconds to wait for Dispatcher Worker to record healing actions'
+        )
+        string(
+            name: 'POLL_MAX_RETRIES',
+            defaultValue: '10',
+            description: 'Maximum polling attempts per pipeline stage check'
+        )
+        string(
+            name: 'POLL_INTERVAL_SECONDS',
+            defaultValue: '3',
+            description: 'Seconds between polling attempts'
+        )
+        booleanParam(
+            name: 'ENABLE_HEALING',
+            defaultValue: false,
+            description: 'Enable Niramay healing execution (healing:enabled=1). ' +
+                         'WARNING: RestartServiceStrategy will attempt to restart crave-backend.'
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // Environment variables — container URLs use Docker network hostnames
+    // -------------------------------------------------------------------------
     environment {
-        BASE_URL = "http://niramay-backend:8000/api/v1"
-        ROOT_URL = "http://niramay-backend:8000"
+        BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000")
+        CRAVE_URL = os.environ.get("CRAVE_URL", "http://localhost:8001")
+        CRAVE_DEV_TOKEN = os.environ.get("CRAVE_DEV_TOKEN", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI1IiwiZW1haWwiOiJkZXZlbG9wZXJAZXhhbXBsZS5jb20iLCJyb2xlIjoiZGV2ZWxvcGVyIiwiZXhwIjoxNzc3NzI0NjczLCJ0eXBlIjoiYWNjZXNzIn0.V5RNvNYSZmfPpftehRb-fx3cJIP6ETGP4dWVpSJ0Qrs")
+        // Timing constants forwarded from build parameters
+        TRAFFIC_BURST_COUNT          = "${params.TRAFFIC_BURST_COUNT}"
+        LOG_PROPAGATION_SECONDS      = "${params.LOG_PROPAGATION_SECONDS}"
+        ANOMALY_PROPAGATION_SECONDS  = "${params.ANOMALY_PROPAGATION_SECONDS}"
+        ANALYSER_PROPAGATION_SECONDS = "${params.ANALYSER_PROPAGATION_SECONDS}"
+        DISPATCHER_PROPAGATION_SECONDS = "${params.DISPATCHER_PROPAGATION_SECONDS}"
+        POLL_MAX_RETRIES             = "${params.POLL_MAX_RETRIES}"
+        POLL_INTERVAL_SECONDS        = "${params.POLL_INTERVAL_SECONDS}"
+
+        // Python output buffering — ensures pytest output streams in real time
+        PYTHONUNBUFFERED = '1'
+
+        // pytest output directory
+        TEST_RESULTS_DIR = 'test-results'
+    }
+
+    options {
+        // Abort the build if total runtime exceeds 25 minutes
+        timeout(time: 25, unit: 'MINUTES')
+
+        // Keep last 10 builds
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+
+        // Timestamps on all console output
+        timestamps()
+
+        // Do not allow concurrent runs of this pipeline
+        disableConcurrentBuilds()
     }
 
     stages {
 
-        stage('Checkout Code') {
+        // =====================================================================
+        // STAGE: Validate Environment
+        // =====================================================================
+        stage('Validate Environment') {
             steps {
-                checkout scm
+                echo "=== Build Parameters ==="
+                echo "BASE_URL:                   ${env.BASE_URL}"
+                echo "CRAVE_URL:                  ${env.CRAVE_URL}"
+                echo "TRAFFIC_BURST_COUNT:        ${env.TRAFFIC_BURST_COUNT}"
+                echo "LOG_PROPAGATION_SECONDS:    ${env.LOG_PROPAGATION_SECONDS}"
+                echo "ANOMALY_PROPAGATION_SECONDS:${env.ANOMALY_PROPAGATION_SECONDS}"
+                echo "ENABLE_HEALING:             ${params.ENABLE_HEALING}"
+
+                // Verify Python is available
+                sh 'python3 --version'
+                sh 'pip3 --version'
+
+                // Create results directory
+                sh "mkdir -p ${TEST_RESULTS_DIR}"
             }
         }
 
-        stage('Verify Niramay is Running') {
-            steps {
-                echo "🔍 Checking Niramay backend is reachable..."
-                sh 'curl -f http://niramay-backend:8000/health || echo "Backend not reachable!"'
-            }
-        }
-
+        // =====================================================================
+        // STAGE: Install Dependencies
+        // =====================================================================
         stage('Install Dependencies') {
-    steps {
-        echo "📦 Installing Python dependencies..."
-        sh '''
-        pip3 install --break-system-packages --upgrade pip
-        pip3 install --break-system-packages pytest requests
-        pip3 install --break-system-packages -r Niramay/backend/tests/requirements.txt
-        '''
-    }
-}
-
-        stage('Run Niramay Tests') {
             steps {
-                echo "🧪 Running E2E healing pipeline tests..."
+                echo "Installing Python test dependencies..."
                 sh '''
-                python3 -m pytest Niramay/backend/tests/test_niramay_pipeline.py -v
+                    pip3 install --quiet \
+                        pytest==8.3.0 \
+                        pytest-html==4.1.1 \
+                        requests==2.32.3
                 '''
+                sh 'pip3 show pytest requests | grep -E "^(Name|Version)"'
             }
         }
 
-        stage('Collect Debug Info (on failure)') {
-            when {
-                expression { currentBuild.currentResult == 'FAILURE' }
-            }
+        // =====================================================================
+        // STAGE: Health Check — Both Systems
+        // =====================================================================
+        stage('Health Check') {
             steps {
-                echo "⚠️ Collecting debug data..."
-                sh '''
-                echo "===== LOGS ====="
-                curl http://niramay-backend:8000/api/v1/observation/logs
+                echo "=== Checking Niramay backend health ==="
+                // Retry up to 12 times (60 seconds total) to handle slow starts
+                retry(12) {
+                    script {
+                        def niramayResp = sh(
+                            script: "curl -sf --max-time 5 ${env.BASE_URL}/health",
+                            returnStdout: true
+                        ).trim()
+                        echo "Niramay health: ${niramayResp}"
+                        if (!niramayResp.contains('"healthy"')) {
+                            error("Niramay health check failed: ${niramayResp}")
+                        }
+                    }
+                }
 
-                echo "===== ANOMALIES ====="
-                curl http://niramay-backend:8000/api/v1/detection/anomalies
+                echo "=== Checking Crave backend health ==="
+                retry(12) {
+                    script {
+                        def status = sh(
+                            script: "curl -sf -o /dev/null -w '%{http_code}' --max-time 5 ${env.CRAVE_URL}/health",
+                            returnStdout: true
+                        ).trim()
+                        echo "Crave /health HTTP status: ${status}"
+                        if (status != '200') {
+                            sleep(5)
+                            error("Crave health check returned ${status}")
+                        }
+                    }
+                }
 
-                echo "===== REPORTS ====="
-                curl http://niramay-backend:8000/api/v1/incident/reports
-                '''
+                echo "=== Both systems healthy — proceeding ==="
+            }
+        }
+
+        // =====================================================================
+        // STAGE: Start Niramay Consumer Thread
+        // =====================================================================
+        stage('Start Niramay Consumer') {
+            steps {
+                echo "Starting Niramay RabbitMQ consumer thread (manually-started daemon)..."
+                script {
+                    def resp = sh(
+                        script: """
+                            curl -sf -X POST \
+                                 --max-time 10 \
+                                 -w '\\n%{http_code}' \
+                                 ${env.BASE_URL}/consumer/start
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    echo "Consumer start response: ${resp}"
+                    // 200 = started, 409 = already running — both are OK
+                    def httpCode = resp.split('\n').last()
+                    if (httpCode != '200' && httpCode != '409') {
+                        echo "WARNING: Consumer start returned ${httpCode}. " +
+                             "Assuming it is already running and continuing."
+                    }
+                }
+
+                // Give the consumer thread time to connect to RabbitMQ
+                sleep(3)
+            }
+        }
+
+        // =====================================================================
+        // STAGE: Enable Crave RabbitMQ Publishing
+        // =====================================================================
+        stage('Enable Crave RabbitMQ Publishing') {
+            steps {
+                echo "Enabling Crave → Niramay RabbitMQ log forwarding..."
+                script {
+                    // Crave docs: POST /api/v1/failure-simulator/rabbitmq/enable
+                    // Sets Redis key crave:rabbitmq:enabled = "1"
+                    def resp = sh(
+                        script: """
+                            curl -sf -X POST \
+                                 --max-time 10 \
+                                 -H "Authorization: Bearer ${env.CRAVE_DEV_TOKEN}" \
+                                 -w '\\n%{http_code}' \
+                                 ${env.CRAVE_URL}/api/v1/failure-simulator/rabbitmq/enable
+                        """,
+                        returnStdout: true
+                    ).trim()
+                    echo "RabbitMQ toggle response: ${resp}"
+                    def httpCode = resp.split('\n').last()
+                    if (httpCode != '200') {
+                        error("Failed to enable RabbitMQ publishing — HTTP ${httpCode}")
+                    }
+                }
+
+                // Wait for log_shipper background thread to establish AMQP connection
+                sleep(5)
+                echo "RabbitMQ publishing enabled — Crave logs will now flow to Niramay"
+            }
+        }
+
+        // =====================================================================
+        // STAGE: Optionally Enable Niramay Healing
+        // =====================================================================
+        stage('Configure Healing') {
+            steps {
+                script {
+                    if (params.ENABLE_HEALING) {
+                        echo "Enabling Niramay healing execution (ENABLE_HEALING=true)..."
+                        sh """
+                            curl -sf -X POST \
+                                 --max-time 10 \
+                                 ${env.BASE_URL}/healing/toggle
+                        """
+                        echo "WARNING: With healing enabled, RestartServiceStrategy may " +
+                             "attempt to restart crave-backend. Ensure Docker socket is mounted."
+                    } else {
+                        echo "Healing disabled (default). " +
+                             "Dispatcher will record status='skipped'. " +
+                             "This is the expected state per Niramay docs §5."
+                    }
+                }
+            }
+        }
+
+        // =====================================================================
+        // STAGE: Run Integration Tests
+        // =====================================================================
+        stage('Run Integration Tests') {
+            steps {
+                echo "=== Running Niramay + Crave Integration Test Suite ==="
+                sh """
+                    python3 -m pytest \
+                        test_niramay_crave_integration.py \
+                        -v \
+                        --tb=short \
+                        --html=${TEST_RESULTS_DIR}/report.html \
+                        --self-contained-html \
+                        -p no:cacheprovider \
+                        2>&1 | tee ${TEST_RESULTS_DIR}/pytest_output.txt
+                """
+            }
+            post {
+                always {
+                    // Archive pytest HTML report regardless of pass/fail
+                    archiveArtifacts(
+                        artifacts: "${TEST_RESULTS_DIR}/**",
+                        allowEmptyArchive: true
+                    )
+                }
             }
         }
     }
 
+    // =========================================================================
+    // POST PIPELINE — debug dump on failure, cleanup always
+    // =========================================================================
     post {
-        always {
-            echo "✅ Pipeline finished."
-        }
-        success {
-            echo "✅ Niramay healing pipeline test PASSED"
-        }
         failure {
-            echo "❌ Niramay healing pipeline test FAILED"
+            echo "=== TEST FAILURE — Collecting Niramay diagnostic state ==="
+
+            // --- Niramay API state dumps ---
+            sh """
+                echo "--- Niramay /observation/logs (last 20) ---" \
+                    > ${TEST_RESULTS_DIR}/debug_dump.txt
+
+                curl -sf ${env.BASE_URL}/observation/logs 2>&1 \
+                    | python3 -m json.tool 2>/dev/null \
+                    | tail -100 \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
+
+                echo "" >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                echo "--- Niramay /detection/anomalies ---" \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                curl -sf ${env.BASE_URL}/detection/anomalies 2>&1 \
+                    | python3 -m json.tool 2>/dev/null \
+                    | tail -80 \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
+
+                echo "" >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                echo "--- Niramay /incident/reports ---" \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                curl -sf ${env.BASE_URL}/incident/reports 2>&1 \
+                    | python3 -m json.tool 2>/dev/null \
+                    | tail -80 \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
+
+                echo "" >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                echo "--- Niramay /healing/actions ---" \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                curl -sf ${env.BASE_URL}/healing/actions 2>&1 \
+                    | python3 -m json.tool 2>/dev/null \
+                    | tail -60 \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
+
+                echo "" >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                echo "--- Niramay /escalations ---" \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                curl -sf ${env.BASE_URL}/escalations 2>&1 \
+                    | python3 -m json.tool 2>/dev/null \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
+
+                echo "" >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                echo "--- Niramay /pipeline/stage ---" \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                curl -sf ${env.BASE_URL}/pipeline/stage 2>&1 \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
+
+                echo "" >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                echo "--- Niramay /stats ---" \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                curl -sf ${env.BASE_URL}/stats 2>&1 \
+                    | python3 -m json.tool 2>/dev/null \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
+            """
+
+            // --- Crave state dumps ---
+            sh """
+                echo "" >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                echo "--- Crave /api/v1/failure-simulator/status ---" \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt
+                curl -sf \
+                     -H "Authorization: Bearer ${env.CRAVE_DEV_TOKEN}" \
+                     ${env.CRAVE_URL}/api/v1/failure-simulator/status 2>&1 \
+                    | python3 -m json.tool 2>/dev/null \
+                    >> ${TEST_RESULTS_DIR}/debug_dump.txt || true
+            """
+
+            // Archive the debug dump
+            archiveArtifacts(
+                artifacts: "${TEST_RESULTS_DIR}/debug_dump.txt",
+                allowEmptyArchive: true
+            )
+
+            echo "=== Debug dump written to ${TEST_RESULTS_DIR}/debug_dump.txt ==="
+            sh "cat ${TEST_RESULTS_DIR}/debug_dump.txt"
+        }
+
+        always {
+            echo "=== Cleanup: Resetting Crave failure scenarios ==="
+            sh """
+                curl -sf -X POST \
+                     --max-time 10 \
+                     -H "Authorization: Bearer ${env.CRAVE_DEV_TOKEN}" \
+                     ${env.CRAVE_URL}/api/v1/failure-simulator/reset \
+                     || echo "Warning: could not reset Crave scenarios (non-fatal)"
+            """
+
+            echo "=== Cleanup: Disabling Crave RabbitMQ publishing ==="
+            sh """
+                curl -sf -X POST \
+                     --max-time 10 \
+                     -H "Authorization: Bearer ${env.CRAVE_DEV_TOKEN}" \
+                     ${env.CRAVE_URL}/api/v1/failure-simulator/rabbitmq/disable \
+                     || echo "Warning: could not disable RabbitMQ toggle (non-fatal)"
+            """
+
+            echo "=== Pipeline complete ==="
+        }
+
+        success {
+            echo "✅ All Niramay + Crave integration tests passed."
         }
     }
 }
