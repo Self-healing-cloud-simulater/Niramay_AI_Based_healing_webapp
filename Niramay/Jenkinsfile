@@ -101,12 +101,13 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 echo "Installing Python test dependencies..."
-                sh """
-                    pip3 install --quiet \\
-                        pytest==8.3.0 \\
-                        pytest-html==4.1.1 \\
-                        requests==2.32.3
-                """
+                sh '''
+                    pip3 install --quiet \
+                       --break-system-packages \
+                       pytest==8.3.0 \
+                       pytest-html==4.1.1 \
+                       requests==2.32.3
+                '''
                 sh 'pip3 show pytest requests | grep -E "^(Name|Version)"'
             }
         }
