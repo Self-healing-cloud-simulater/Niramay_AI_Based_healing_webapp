@@ -110,27 +110,107 @@ class CausalEngine:
         """
 
     def _rule_based_fallback(self, log: Dict[str, Any]) -> Dict[str, Any]:
-        """Simple rule-based RCA for when the LLM is unavailable"""
+        """
+        Rule-based RCA for when the LLM is unavailable.
+
+        Two-priority routing:
+            Priority 1: failure_tag (set by FailureSimulationMiddleware)
+                Maps specific Crave failure types to K3s healing actions.
+            Priority 2: anomaly_reasons (ChaosMiddleware has no failure_tag)
+                Uses detected anomaly signals to infer best action.
+        """
         reasons = log.get("anomaly_reasons", [])
-        
-        root_cause = "Unknown behavioral anomaly"
-        suggested_action = "none"
-        
+        failure_tag = log.get("failure_tag", "none") or "none"
+
+        # ── Priority 1: failure_tag routing ───────────────────────────
+        # FailureSimulationMiddleware sets this field on every injected
+        # failure. This is the most reliable signal.
+        _TAG_MAP = {
+            "service_overload": (
+                "Service overload: high error rate across all endpoints",
+                0.85, "scale_up",
+            ),
+            "config_error": (
+                "Configuration error: service misconfiguration detected",
+                0.85, "rollback_deployment",
+            ),
+            "database_error": (
+                "Database layer failure causing 500 errors",
+                0.80, "restart_service",
+            ),
+            "payment_timeout": (
+                "Payment service dependency timeout (504)",
+                0.80, "restart_service",
+            ),
+            "stripe_dependency": (
+                "Stripe payment gateway unreachable",
+                0.80, "restart_service",
+            ),
+            "maps_dependency": (
+                "Maps service dependency failure",
+                0.80, "restart_service",
+            ),
+            "rate_limiting": (
+                "API rate limit breach detected (429)",
+                0.85, "throttle_requests",
+            ),
+        }
+
+        if failure_tag in _TAG_MAP:
+            root_cause, confidence, action = _TAG_MAP[failure_tag]
+            return {
+                "root_cause": root_cause,
+                "confidence": confidence,
+                "suggested_action": action,
+                "analysis_type": "rule_fallback",
+            }
+
+        # ── Priority 2: anomaly_reasons routing ──────────────────────
+        # ChaosMiddleware does NOT set failure_tag, so we rely on
+        # the anomaly signals detected by the Detection Worker.
+
+        if "server_error" in reasons and "high_latency" in reasons:
+            return {
+                "root_cause": "Resource exhaustion or cascading failure "
+                              "(concurrent server errors and high latency)",
+                "confidence": 0.70,
+                "suggested_action": "circuit_breaker",
+                "analysis_type": "rule_fallback",
+            }
+
         if "server_error" in reasons:
-            root_cause = "Internal server error (5xx) detected in service logic or database."
-            suggested_action = "restart_service"
-        elif "high_latency" in reasons:
-            root_cause = "Service degradation or resource bottleneck causing increased response times."
-            suggested_action = "throttle_requests"
-        elif "rate_limit" in reasons:
-            root_cause = "External or internal client exceeding API rate limits."
-            suggested_action = "throttle_requests"
-            
+            return {
+                "root_cause": "Internal server error (5xx) detected "
+                              "in service logic or database.",
+                "confidence": 0.75,
+                "suggested_action": "restart_service",
+                "analysis_type": "rule_fallback",
+            }
+
+        if "high_latency" in reasons:
+            return {
+                "root_cause": "Resource pressure causing elevated "
+                              "response times.",
+                "confidence": 0.70,
+                "suggested_action": "scale_up",
+                "analysis_type": "rule_fallback",
+            }
+
+        if "rate_limit" in reasons:
+            return {
+                "root_cause": "External or internal client exceeding "
+                              "API rate limits.",
+                "confidence": 0.75,
+                "suggested_action": "throttle_requests",
+                "analysis_type": "rule_fallback",
+            }
+
+        # No recognizable signal — escalate to human
         return {
-            "root_cause": root_cause,
-            "confidence": 0.7,
-            "suggested_action": suggested_action,
-            "analysis_type": "rule_fallback"
+            "root_cause": "Unknown behavioral anomaly",
+            "confidence": 0.5,
+            "suggested_action": "escalate_only",
+            "analysis_type": "rule_fallback",
         }
 
 # Singleton instance

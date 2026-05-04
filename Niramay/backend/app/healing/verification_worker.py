@@ -28,13 +28,17 @@ HEALING_KEY = "healing:actions"
 ESCALATION_KEY = "escalation:alerts"
 
 # Settling windows per action type (seconds)
+# These define how long the verification worker waits after a healing
+# action before checking OpenSearch for subsequent traffic.
+# K3s pod operations are slightly slower than Docker restarts,
+# so windows are tuned to allow K3s pods to become Ready.
 SETTLING_WINDOWS = {
-    "restart_service": 45,
-    "throttle_requests": 15,
-    "flush_cache": 10,
-    "scale_up": 30,
-    "circuit_breaker": 20,
-    "rollback_deployment": 60,
+    "restart_service": 60,       # K3s rolling restart — pods replaced one-by-one
+    "throttle_requests": 20,     # K3s scale-down is near-instant
+    "flush_cache": 15,           # Redis FLUSHDB exec is instant, allow cache rebuild
+    "scale_up": 45,              # New K3s pod needs ~45s to pass readiness checks
+    "circuit_breaker": 70,       # 30s at 0 replicas + 40s for pod restart
+    "rollback_deployment": 90,   # Previous ReplicaSet deployment takes ~90s
     "escalate_only": 0,
     "none": 0,
 }
