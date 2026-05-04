@@ -12,7 +12,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: niramay
-  namespace: default
+  namespace: selfhealing
   labels:
     app: niramay-backend
     component: self-healing
@@ -62,7 +62,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: niramay
-    namespace: default
+    namespace: selfhealing
 roleRef:
   kind: ClusterRole
   name: niramay-healer

@@ -18,7 +18,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: niramay-backend
-  namespace: default
+  namespace: selfhealing
   labels:
     app: niramay-backend
 spec:
@@ -45,7 +45,7 @@ spec:
             - name: K3S_IN_CLUSTER
               value: "true"
             - name: K3S_NAMESPACE
-              value: "default"
+              value: "selfhealing"
             - name: K3S_CRAVE_DEPLOYMENT_NAME
               value: "crave-backend"
             - name: K3S_MAX_REPLICAS
@@ -53,7 +53,7 @@ spec:
             - name: K3S_CIRCUIT_BREAKER_DURATION_SECONDS
               value: "30"
             - name: K3S_CRAVE_REDIS_POD_LABEL
-              value: "app=niramay-redis"
+              value: "app=crave-redis"
 
             # ── Infrastructure (via ExternalName bridge to Docker Compose) ──
             # These hostnames are resolved by k3s/docker-compose-bridge.yaml
@@ -113,7 +113,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: niramay-backend
-  namespace: default
+  namespace: selfhealing
   labels:
     app: niramay-backend
 spec:
