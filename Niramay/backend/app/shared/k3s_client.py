@@ -137,3 +137,23 @@ def get_core_v1():
     except Exception as e:
         logger.error("K3s client: failed to create CoreV1Api", error=str(e))
         return None
+
+
+def get_custom_objects():
+    """
+    Return an authenticated CustomObjectsApi client for K3s.
+
+    Used by: chaos injection verification (Chaos Mesh CRDs).
+    Returns None if K3s is unreachable or library not installed.
+    Callers must check for None.
+    """
+    if not _ensure_config():
+        return None
+    try:
+        from kubernetes import client
+        return client.CustomObjectsApi()
+    except Exception as e:
+        logger.error(
+            "K3s client: failed to create CustomObjectsApi", error=str(e)
+        )
+        return None

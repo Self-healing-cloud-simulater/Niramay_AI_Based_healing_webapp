@@ -132,15 +132,26 @@ async def verification_worker_loop():
                     continue  # Not enough time has passed
 
                 # ── Query OpenSearch for subsequent logs ──
-                service = pv["service"]
-                endpoint = pv["endpoint"]
-                timestamp = pv["timestamp"]
-
-                subsequent_logs = opensearch_writer.get_logs_after_timestamp(
-                    service=service,
-                    endpoint=endpoint,
-                    timestamp=timestamp,
-                )
+                # After healing a crave-* service, widen query to
+                # all crave-* services — failures often spread across
+                # multiple endpoints simultaneously in K3s.
+                if "crave" in pv.get("service", "").lower():
+                    subsequent_logs = (
+                        opensearch_writer.get_logs_after_timestamp(
+                            service=None,
+                            endpoint=None,
+                            timestamp=pv["timestamp"],
+                            service_prefix="crave-",
+                        )
+                    )
+                else:
+                    subsequent_logs = (
+                        opensearch_writer.get_logs_after_timestamp(
+                            service=pv["service"],
+                            endpoint=pv["endpoint"],
+                            timestamp=pv["timestamp"],
+                        )
+                    )
 
                 if not subsequent_logs:
                     # No traffic yet — check if expired (10 min)

@@ -22,16 +22,20 @@ When used:
     - anomaly_reason = rate_limit
 """
 import asyncio
+import json
 import structlog
+from datetime import datetime, timezone
 from typing import Dict, Any
 from app.healing_action_executor.strategies.base import BaseHealingStrategy
 from app.shared.k3s_client import get_apps_v1
+from app.core.redis_client import redis_client
 from app.core.config import settings
 
 logger = structlog.get_logger(__name__)
 
 # How long to keep the throttled state before restoring
-THROTTLE_RESTORE_SECONDS = 60
+THROTTLE_RESTORE_SECONDS = 300  # 5 minutes
+THROTTLE_RATE_LIMIT_RPS = 10
 
 
 class K3sThrottleStrategy(BaseHealingStrategy):
@@ -54,6 +58,33 @@ class K3sThrottleStrategy(BaseHealingStrategy):
             alert_id=alert_id,
         )
 
+        # ── Part 1: Write Redis throttle signal for CRAVE middleware ──
+        try:
+            signal_key = f"healing:signals:{service}:throttle"
+            signal_value = json.dumps({
+                "rate_limit_rps": THROTTLE_RATE_LIMIT_RPS,
+                "duration_seconds": THROTTLE_RESTORE_SECONDS,
+                "set_at": datetime.now(timezone.utc).isoformat(),
+                "set_by": "component_a",
+                "alert_id": alert_id,
+            })
+            redis_client.setex(
+                signal_key,
+                THROTTLE_RESTORE_SECONDS,
+                signal_value,
+            )
+            logger.info(
+                "K3sThrottleStrategy: Redis throttle signal written",
+                key=signal_key,
+                rps=THROTTLE_RATE_LIMIT_RPS,
+            )
+        except Exception as e:
+            logger.warning(
+                "K3sThrottleStrategy: Redis signal failed (non-fatal)",
+                error=str(e),
+            )
+
+        # ── Part 2: Scale down by 1 via K3s ────────────────────
         apps = get_apps_v1()
         if apps is None:
             return self._failure(

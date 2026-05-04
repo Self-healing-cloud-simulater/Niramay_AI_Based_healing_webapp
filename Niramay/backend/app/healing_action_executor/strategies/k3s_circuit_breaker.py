@@ -5,26 +5,33 @@ K3s Circuit Breaker Strategy
 Implements the `circuit_breaker` healing action for K3s clusters.
 
 Mechanism:
-    "Open" the circuit by scaling the Crave backend Deployment to 0 replicas.
-    This immediately terminates all pods and stops all traffic to the service.
+    Two-part circuit breaker implementation:
+    1. Write Redis signal so CRAVE middleware returns
+       503 with fallback message instead of crashing
+    2. Scale to minimum 1 replica (NOT zero — zero causes
+       connection refused which is worse than a clean 503)
 
-    After K3S_CIRCUIT_BREAKER_DURATION_SECONDS (default 30s), the circuit
-    "closes" by restoring the original replica count. K3s then creates
-    fresh pods with clean middleware state.
+    IMPORTANT: This is NOT scale-to-zero.
+    Scale-to-zero = connection refused for ALL clients
+    = worse than the original failure.
+    Scale-to-1 + Redis signal = clean 503 with a message
+    while the pod recovers.
 
-    This is the nuclear option — complete isolation of the service.
-    Used only for cascading failures that spread across multiple endpoints.
+    After K3S_CIRCUIT_BREAKER_DURATION_SECONDS the service
+    is restored to its original replica count via a background task.
 
 When used:
-    - Cascading failure pattern detected (server_error + high_latency together)
-    - Multiple downstream services failing simultaneously
+    - failure_tag = dependency (external service unavailable)
+    - Cascading failure: 3+ detection engines fired simultaneously
 """
 import asyncio
+import json
 import structlog
 from datetime import datetime, timezone
 from typing import Dict, Any
 from app.healing_action_executor.strategies.base import BaseHealingStrategy
 from app.shared.k3s_client import get_apps_v1
+from app.core.redis_client import redis_client
 from app.core.config import settings
 
 logger = structlog.get_logger(__name__)
@@ -34,7 +41,8 @@ class K3sCircuitBreakerStrategy(BaseHealingStrategy):
     """
     K3s implementation of `circuit_breaker`.
 
-    Scales Deployment to 0 (circuit open) → waits → restores (circuit close).
+    Writes Redis signal + scales to 1 (not 0) →
+    schedules background restore after circuit duration.
     """
 
     async def execute(
@@ -42,6 +50,7 @@ class K3sCircuitBreakerStrategy(BaseHealingStrategy):
     ) -> Dict[str, Any]:
         service = machine_alert.get("service", "unknown")
         alert_id = machine_alert.get("alert_id", "unknown")
+        duration = settings.K3S_CIRCUIT_BREAKER_DURATION_SECONDS
 
         logger.info(
             "K3sCircuitBreakerStrategy: starting",
@@ -49,101 +58,156 @@ class K3sCircuitBreakerStrategy(BaseHealingStrategy):
             alert_id=alert_id,
         )
 
+        # ── Part 1: Write Redis circuit breaker signal ─────────────
+        try:
+            signal_key = (
+                f"healing:signals:{service}:circuit_breaker"
+            )
+            signal_value = json.dumps({
+                "open": True,
+                "fallback_response": (
+                    "Service temporarily unavailable. "
+                    "Healing in progress."
+                ),
+                "duration_seconds": duration,
+                "set_at": datetime.now(timezone.utc).isoformat(),
+                "set_by": "component_a",
+                "alert_id": alert_id,
+            })
+            redis_client.setex(signal_key, duration, signal_value)
+            logger.info(
+                "K3sCircuitBreakerStrategy: Redis signal written",
+                key=signal_key,
+                duration=duration,
+            )
+        except Exception as e:
+            logger.warning(
+                "K3sCircuitBreakerStrategy: Redis signal failed (non-fatal)",
+                error=str(e),
+            )
+
+        # ── Part 2: Scale to minimum 1 replica via K3s ─────────────
         apps = get_apps_v1()
         if apps is None:
-            return self._failure(
+            return self._success(
                 healing_action="circuit_breaker",
-                message="K3s client unavailable — cannot open circuit",
-                error="K3s AppsV1Api returned None.",
+                message=(
+                    "Circuit breaker Redis signal written. "
+                    "K3s scale skipped (API unavailable)."
+                ),
                 service=service,
             )
 
         deployment_name = settings.K3S_CRAVE_DEPLOYMENT_NAME
         namespace = settings.K3S_NAMESPACE
-        duration = settings.K3S_CIRCUIT_BREAKER_DURATION_SECONDS
 
         try:
-            # Read current replica count (to restore later)
             deployment = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: apps.read_namespaced_deployment(
                     name=deployment_name,
                     namespace=namespace,
-                )
+                ),
             )
             original_replicas = deployment.spec.replicas or 1
 
-            # ── Step 1: Open circuit — scale to 0 ────────────────────────
-            patch_zero = {"spec": {"replicas": 0}}
-
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: apps.patch_namespaced_deployment(
-                    name=deployment_name,
-                    namespace=namespace,
-                    body=patch_zero,
+            # Scale to 1 — NOT 0 (avoids connection refused)
+            if original_replicas > 1:
+                patch_body = {"spec": {"replicas": 1}}
+                await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: apps.patch_namespaced_deployment(
+                        name=deployment_name,
+                        namespace=namespace,
+                        body=patch_body,
+                    ),
                 )
-            )
-
-            opened_at = datetime.now(timezone.utc).isoformat()
-            logger.info(
-                "K3sCircuitBreakerStrategy: circuit OPENED (scaled to 0)",
-                deployment=deployment_name,
-                original_replicas=original_replicas,
-            )
-
-            # ── Step 2: Wait for circuit breaker duration ─────────────────
-            logger.info(
-                "K3sCircuitBreakerStrategy: holding circuit open",
-                duration_seconds=duration,
-            )
-            await asyncio.sleep(duration)
-
-            # ── Step 3: Close circuit — restore replicas ──────────────────
-            patch_restore = {"spec": {"replicas": original_replicas}}
-
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: apps.patch_namespaced_deployment(
-                    name=deployment_name,
-                    namespace=namespace,
-                    body=patch_restore,
+                logger.info(
+                    "K3sCircuitBreakerStrategy: circuit OPEN "
+                    "(scaled to 1 — not 0)",
+                    deployment=deployment_name,
+                    original_replicas=original_replicas,
                 )
-            )
 
-            restored_at = datetime.now(timezone.utc).isoformat()
-            logger.info(
-                "K3sCircuitBreakerStrategy: circuit CLOSED (restored)",
-                deployment=deployment_name,
-                restored_replicas=original_replicas,
+            # Schedule background restore after circuit duration
+            asyncio.create_task(
+                self._restore_circuit(
+                    apps,
+                    deployment_name,
+                    namespace,
+                    original_replicas,
+                    duration,
+                    service,
+                )
             )
 
             return self._success(
                 healing_action="circuit_breaker",
                 message=(
-                    f"Circuit breaker for '{deployment_name}': "
-                    f"scaled to 0 for {duration}s, then restored "
-                    f"to {original_replicas} replicas."
+                    f"Circuit breaker open. Redis signal written + "
+                    f"scaled to 1 replica. "
+                    f"Restoring to {original_replicas} in {duration}s."
                 ),
                 service=service,
-                previous_replicas=original_replicas,
-                zero_duration_seconds=duration,
-                opened_at=opened_at,
-                restored_at=restored_at,
+                original_replicas=original_replicas,
+                circuit_duration=duration,
             )
 
         except Exception as e:
             logger.error(
-                "K3sCircuitBreakerStrategy: failed",
+                "K3sCircuitBreakerStrategy: K3s scale failed",
                 deployment=deployment_name,
                 error=str(e),
             )
             return self._failure(
                 healing_action="circuit_breaker",
                 message=(
-                    f"K3s circuit breaker failed for "
+                    f"K3s circuit breaker scale failed for "
                     f"'{deployment_name}'"
                 ),
                 error=str(e),
                 service=service,
+            )
+
+    async def _restore_circuit(
+        self,
+        apps,
+        deployment_name: str,
+        namespace: str,
+        original_replicas: int,
+        wait_seconds: int,
+        service: str,
+    ):
+        """
+        Background task: wait for circuit duration,
+        then restore original replica count and clear Redis signal.
+        """
+        await asyncio.sleep(wait_seconds)
+        try:
+            patch_body = {"spec": {"replicas": original_replicas}}
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: apps.patch_namespaced_deployment(
+                    name=deployment_name,
+                    namespace=namespace,
+                    body=patch_body,
+                ),
+            )
+            # Clear Redis signal
+            try:
+                redis_client.delete(
+                    f"healing:signals:{service}:circuit_breaker"
+                )
+            except Exception:
+                pass
+            logger.info(
+                "K3sCircuitBreakerStrategy: circuit CLOSED (restored)",
+                deployment=deployment_name,
+                replicas=original_replicas,
+            )
+        except Exception as e:
+            logger.error(
+                "K3sCircuitBreakerStrategy: restore failed",
+                deployment=deployment_name,
+                error=str(e),
             )

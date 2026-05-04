@@ -442,22 +442,43 @@ class OpenSearchWriter:
         )
 
     def get_logs_after_timestamp(
-        self, service: str, endpoint: str, timestamp: str
+        self,
+        service: Optional[str],
+        endpoint: Optional[str],
+        timestamp: str,
+        service_prefix: Optional[str] = None,
     ) -> List[Dict]:
         """
-        Query crave-normalized-logs for entries from a specific service
-        and endpoint after a given timestamp.
+        Query crave-normalized-logs for entries after a given timestamp.
+
+        Filtering modes:
+            service_prefix — prefix query on service field (e.g. "crave-")
+                             Used after healing a CRAVE service to check
+                             all crave-* endpoints simultaneously.
+            service + endpoint — exact term match (single service/endpoint)
+            timestamp only  — all logs after timestamp (no service filter)
+
         Used by the verification worker to check if anomaly signals
         persist after a healing action.
         """
+        must_clauses: list = [
+            {"range": {"timestamp": {"gt": timestamp}}}
+        ]
+
+        if service_prefix:
+            # Widen to all services matching prefix (e.g. all crave-*)
+            must_clauses.append(
+                {"prefix": {"service": service_prefix}}
+            )
+        elif service:
+            must_clauses.append({"term": {"service": service}})
+            if endpoint:
+                must_clauses.append({"term": {"endpoint": endpoint}})
+
         body = {
             "query": {
                 "bool": {
-                    "must": [
-                        {"term": {"service": service}},
-                        {"term": {"endpoint": endpoint}},
-                        {"range": {"timestamp": {"gt": timestamp}}},
-                    ]
+                    "must": must_clauses
                 }
             },
             "sort": [{"timestamp": {"order": "asc"}}],

@@ -84,7 +84,7 @@ class CausalEngine:
         - Endpoint: {log.get('endpoint')}
         - Status Code: {log.get('status_code')}
         - Response Time: {log.get('response_time_ms', log.get('response_time'))}ms
-        - Failure Tag: {log.get('failure_tag', log.get('failure_type'))}
+        - Failure Tag: {log.get('failure_tag', 'none')}
         - Anomaly Reasons: {log.get('anomaly_reasons')}
         - Engines Triggered: {log.get('engines_triggered', [])}
         - Anomaly Score: {log.get('anomaly_score', 'N/A')}
@@ -111,106 +111,178 @@ class CausalEngine:
 
     def _rule_based_fallback(self, log: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Rule-based RCA for when the LLM is unavailable.
+        Maps CRAVE failure signals to healing actions.
 
-        Two-priority routing:
-            Priority 1: failure_tag (set by FailureSimulationMiddleware)
-                Maps specific Crave failure types to K3s healing actions.
-            Priority 2: anomaly_reasons (ChaosMiddleware has no failure_tag)
-                Uses detected anomaly signals to infer best action.
+        Priority order:
+        1. failure_tag — most precise, comes directly
+           from CRAVE's exception handler or injector
+        2. Multi-engine — 3+ engines firing together
+           indicates cascading/system-wide failure
+        3. Single anomaly reason — least precise,
+           used when failure_tag is absent
+
+        All returned suggested_action values are
+        validated against VALID_ACTIONS vocabulary.
         """
+        failure_tag = log.get("failure_tag", "none")
         reasons = log.get("anomaly_reasons", [])
-        failure_tag = log.get("failure_tag", "none") or "none"
+        engines = log.get("engines_triggered", [])
 
-        # ── Priority 1: failure_tag routing ───────────────────────────
-        # FailureSimulationMiddleware sets this field on every injected
-        # failure. This is the most reliable signal.
-        _TAG_MAP = {
-            "service_overload": (
-                "Service overload: high error rate across all endpoints",
-                0.85, "scale_up",
+        # ── Priority 1: failure_tag mapping ──────────
+        # These tags come from CRAVE's exception handler
+        # and are the most reliable signal we have.
+        # Niramay should trust them completely.
+
+        TAG_MAP = {
+            "database_error": (
+                "restart_service",
+                "Database connection failure or query error. "
+                "Service restart will re-establish pool.",
+                0.88,
+            ),
+            "service_unavailable": (
+                "scale_up",
+                "Service overloaded — current replica count "
+                "insufficient for traffic volume.",
+                0.85,
             ),
             "config_error": (
-                "Configuration error: service misconfiguration detected",
-                0.85, "rollback_deployment",
-            ),
-            "database_error": (
-                "Database layer failure causing 500 errors",
-                0.80, "restart_service",
-            ),
-            "payment_timeout": (
-                "Payment service dependency timeout (504)",
-                0.80, "restart_service",
-            ),
-            "stripe_dependency": (
-                "Stripe payment gateway unreachable",
-                0.80, "restart_service",
-            ),
-            "maps_dependency": (
-                "Maps service dependency failure",
-                0.80, "restart_service",
+                "rollback_deployment",
+                "Bad configuration deployed. "
+                "Previous version was stable.",
+                0.90,
             ),
             "rate_limiting": (
-                "API rate limit breach detected (429)",
-                0.85, "throttle_requests",
+                "throttle_requests",
+                "Request rate exceeding configured limits. "
+                "Client-side rate reduction needed.",
+                0.82,
+            ),
+            "payment_timeout": (
+                "restart_service",
+                "Payment gateway timeout. Downstream service "
+                "unresponsive — restart clears connection state.",
+                0.80,
+            ),
+            "dependency": (
+                "circuit_breaker",
+                "External dependency unavailable. "
+                "Circuit breaker prevents cascade failure.",
+                0.85,
+            ),
+            "auth_expiration": (
+                "escalate_only",
+                "Authentication credentials expired. "
+                "Requires human intervention to rotate.",
+                0.95,
             ),
         }
 
-        if failure_tag in _TAG_MAP:
-            root_cause, confidence, action = _TAG_MAP[failure_tag]
-            return {
-                "root_cause": root_cause,
-                "confidence": confidence,
-                "suggested_action": action,
-                "analysis_type": "rule_fallback",
-            }
+        if failure_tag and failure_tag != "none":
+            if failure_tag in TAG_MAP:
+                action, cause, confidence = TAG_MAP[failure_tag]
+                return {
+                    "root_cause": cause,
+                    "confidence": confidence,
+                    "suggested_action": action,
+                    "analysis_type": "rule_fallback",
+                    "matched_by": "failure_tag",
+                }
 
-        # ── Priority 2: anomaly_reasons routing ──────────────────────
-        # ChaosMiddleware does NOT set failure_tag, so we rely on
-        # the anomaly signals detected by the Detection Worker.
+        # ── Priority 2: cascading failure detection ───
+        # When 3 or more engines fire simultaneously the
+        # failure is system-wide and a circuit breaker
+        # prevents further cascade.
 
-        if "server_error" in reasons and "high_latency" in reasons:
+        cascading = (
+            len(engines) >= 3
+            or (
+                "server_error" in reasons
+                and "high_latency" in reasons
+                and any(
+                    r in reasons
+                    for r in [
+                        "rate_based_error_spike",
+                        "baseline_deviation",
+                        "service_silence",
+                    ]
+                )
+            )
+        )
+
+        if cascading:
             return {
-                "root_cause": "Resource exhaustion or cascading failure "
-                              "(concurrent server errors and high latency)",
-                "confidence": 0.70,
+                "root_cause": (
+                    "Cascading failure across multiple signals. "
+                    "System under severe stress — circuit breaker "
+                    "prevents further degradation."
+                ),
+                "confidence": 0.75,
                 "suggested_action": "circuit_breaker",
                 "analysis_type": "rule_fallback",
+                "matched_by": "multi_engine",
             }
 
-        if "server_error" in reasons:
-            return {
-                "root_cause": "Internal server error (5xx) detected "
-                              "in service logic or database.",
-                "confidence": 0.75,
-                "suggested_action": "restart_service",
-                "analysis_type": "rule_fallback",
-            }
+        # ── Priority 3: single reason mapping ─────────
+        REASON_MAP = {
+            "server_error": (
+                "restart_service",
+                "Internal server error in service logic or database.",
+                0.70,
+            ),
+            "high_latency": (
+                "scale_up",
+                "Service response time degraded under load. "
+                "Additional capacity needed.",
+                0.65,
+            ),
+            "rate_limit": (
+                "throttle_requests",
+                "API rate limit exceeded by client or "
+                "internal service call.",
+                0.75,
+            ),
+            "rate_based_error_spike": (
+                "scale_up",
+                "Sustained error rate spike — service under "
+                "load it cannot handle at current replica count.",
+                0.68,
+            ),
+            "service_silence": (
+                "escalate_only",
+                "Service not responding for extended period. "
+                "May need manual inspection before restart.",
+                0.60,
+            ),
+            "baseline_deviation": (
+                "scale_up",
+                "Response time significantly above baseline. "
+                "Load increasing beyond current capacity.",
+                0.55,
+            ),
+        }
 
-        if "high_latency" in reasons:
-            return {
-                "root_cause": "Resource pressure causing elevated "
-                              "response times.",
-                "confidence": 0.70,
-                "suggested_action": "scale_up",
-                "analysis_type": "rule_fallback",
-            }
+        for reason in reasons:
+            if reason in REASON_MAP:
+                action, cause, confidence = REASON_MAP[reason]
+                return {
+                    "root_cause": cause,
+                    "confidence": confidence,
+                    "suggested_action": action,
+                    "analysis_type": "rule_fallback",
+                    "matched_by": "anomaly_reason",
+                }
 
-        if "rate_limit" in reasons:
-            return {
-                "root_cause": "External or internal client exceeding "
-                              "API rate limits.",
-                "confidence": 0.75,
-                "suggested_action": "throttle_requests",
-                "analysis_type": "rule_fallback",
-            }
-
-        # No recognizable signal — escalate to human
+        # ── Default: unknown pattern ───────────────────
         return {
-            "root_cause": "Unknown behavioral anomaly",
-            "confidence": 0.5,
+            "root_cause": (
+                "Unknown anomaly pattern. "
+                "Insufficient signals for automatic classification."
+            ),
+            "confidence": 0.30,
             "suggested_action": "escalate_only",
             "analysis_type": "rule_fallback",
+            "matched_by": "default",
         }
 
 # Singleton instance

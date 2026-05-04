@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     K3S_ENABLED: bool = False
 
     # Namespace where Crave and Niramay Deployments live in K3s
-    K3S_NAMESPACE: str = "default"
+    K3S_NAMESPACE: str = "selfhealing"
 
     # Name of the Crave backend Deployment in K3s
     # Must match metadata.name in k3s/crave-deployment.yaml
@@ -79,9 +79,23 @@ class Settings(BaseSettings):
     # How many seconds circuit_breaker holds Deployment at 0 replicas
     K3S_CIRCUIT_BREAKER_DURATION_SECONDS: int = 30
 
-    # Label selector to find the Redis pod for flush_cache exec
-    # Must match the label set on the Redis pod in K3s
-    K3S_CRAVE_REDIS_POD_LABEL: str = "app=niramay-redis"
+    # Label selector to find the CRAVE Redis pod for flush_cache exec
+    # Must match labels in k3s/crave-deployment.yaml
+    # IMPORTANT: targets CRAVE's Redis, NOT Niramay's Redis
+    K3S_CRAVE_REDIS_POD_LABEL: str = "app=crave-redis"
+
+    # CRAVE internal K3s service URL
+    # Used by Component A to call heal endpoint inside the cluster
+    CRAVE_K3S_URL: str = (
+        "http://crave-backend.selfhealing.svc.cluster.local:8000"
+    )
+
+    # Healing enabled key in Redis
+    HEALING_ENABLED_KEY: str = "niramay:healing:enabled"
+
+    # Whether to auto-enable healing on startup
+    # Keep False for tests, set True in K3s deployment
+    HEALING_AUTO_ENABLE_ON_STARTUP: bool = False
 
     # Email Escalation (SMTP)
     # Set SMTP_ENABLED=True and configure credentials to
@@ -133,8 +147,8 @@ class Settings(BaseSettings):
     RATE_BASED_WINDOW_SECONDS: int = 60      # Rolling window size
 
     # Stage 2 — Silence Detection Engine (Redis-backed)
-    SILENCE_THRESHOLD_SECONDS: int = 120     # Silence gap before firing
-    SILENCE_CHECK_INTERVAL_SECONDS: int = 30 # Background check frequency
+    SILENCE_THRESHOLD_SECONDS: int = 600     # Silence gap before firing
+    SILENCE_CHECK_INTERVAL_SECONDS: int = 60 # Background check frequency
 
     # Stage 2 — Integer-based anomaly score threshold (for DetectionService)
     DETECTION_ANOMALY_SCORE_THRESHOLD: int = 3
