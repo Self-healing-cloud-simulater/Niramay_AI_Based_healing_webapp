@@ -55,6 +55,34 @@ class Settings(BaseSettings):
     CRAVE_DEVELOPER_EMAIL: str = "developer@example.com"
     CRAVE_DEVELOPER_PASSWORD: str = "developer123"
 
+    # ── K3s Cluster Settings ──────────────────────────────────────────────
+    # K3s is a lightweight Kubernetes distribution.
+    # All K3s healing strategies are DISABLED when K3S_ENABLED=false.
+    # Set K3S_ENABLED=true only when running inside or alongside a K3s cluster.
+    # Docker Compose + test suite always use K3S_ENABLED=false (default).
+    K3S_ENABLED: bool = False
+
+    # Namespace where Crave and Niramay Deployments live in K3s
+    K3S_NAMESPACE: str = "default"
+
+    # Name of the Crave backend Deployment in K3s
+    # Must match metadata.name in k3s/crave-deployment.yaml
+    K3S_CRAVE_DEPLOYMENT_NAME: str = "crave-backend"
+
+    # True  = load in-cluster service account (Niramay running as a K3s pod)
+    # False = load ~/.kube/config (local WSL2 dev with K3s installed)
+    K3S_IN_CLUSTER: bool = True
+
+    # Maximum replicas scale_up is allowed to set
+    K3S_MAX_REPLICAS: int = 5
+
+    # How many seconds circuit_breaker holds Deployment at 0 replicas
+    K3S_CIRCUIT_BREAKER_DURATION_SECONDS: int = 30
+
+    # Label selector to find the Redis pod for flush_cache exec
+    # Must match the label set on the Redis pod in K3s
+    K3S_CRAVE_REDIS_POD_LABEL: str = "app=niramay-redis"
+
     # Email Escalation (SMTP)
     # Set SMTP_ENABLED=True and configure credentials to
     # receive email alerts when healing fails after 3 attempts
