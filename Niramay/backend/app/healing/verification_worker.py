@@ -107,6 +107,42 @@ async def verification_worker_loop():
                     }
                     pending_verifications[detection_id] = pv
 
+                    # Emit verification-running pipeline stage
+                    # (only on first pickup of this detection_id)
+                    try:
+                        stage_val = "stage_6_verification_running"
+                        msg_val = (
+                            "Verification in progress \u2014 "
+                            "checking if anomaly is resolved"
+                        )
+                        timestamp_val = datetime.now(
+                            timezone.utc
+                        ).isoformat()
+                        await r.set(
+                            settings.PIPELINE_STAGE_KEY,
+                            json.dumps({
+                                "stage": stage_val,
+                                "timestamp": timestamp_val,
+                                "message": msg_val,
+                                "service": pv["service"],
+                            })
+                        )
+                        event = {
+                            "event_type": "verification_started",
+                            "stage": stage_val,
+                            "timestamp": timestamp_val,
+                            "message": msg_val,
+                        }
+                        await r.lpush(
+                            "pipeline:events",
+                            json.dumps(event)
+                        )
+                        await r.ltrim(
+                            "pipeline:events", 0, 99
+                        )
+                    except Exception:
+                        pass
+
                 # Check settling window
                 healing_action = action.get("healing_action", "unknown")
                 wait_seconds = SETTLING_WINDOWS.get(
@@ -139,56 +175,79 @@ async def verification_worker_loop():
                 )
 
                 if not subsequent_logs:
-                    # No traffic yet — check if expired (10 min)
-                    if elapsed > 600:
+                    # No traffic yet — if the healing action itself was
+                    # successful AND we've waited past the settling window
+                    # plus a grace period, auto-verify as success.
+                    # This handles the case where CRAVE stops generating
+                    # traffic after failure scenarios are disabled.
+                    action_status = action.get("status", "")
+                    fast_path_window = wait_seconds + 60  # settling + 60s grace
+                    if action_status == "success" and elapsed > fast_path_window:
+                        logger.info(
+                            "Verification fast-path: healing was "
+                            "successful and no anomalous traffic "
+                            "after grace period — auto-verifying",
+                            detection_id=detection_id,
+                            elapsed=elapsed,
+                        )
+                        pv["outcomes"].append("SUCCESS")
+                        # Jump to success flow below
+                        healing_succeeded = True
+                        failure_rate = 0.0
+                    elif elapsed > 600:
                         pv["outcomes"].append("EXPIRED")
                         logger.warning(
                             "Healing verification expired (no traffic)",
                             detection_id=detection_id,
                         )
                         del pending_verifications[detection_id]
-                    continue
+                        continue
+                    else:
+                        continue
 
-                # Analyze subsequent logs for anomaly signals
-                anomaly_count = 0
-                for slog in subsequent_logs:
-                    status = slog.get("status_code", 200)
-                    failure = slog.get("failure_tag", "none")
-                    if status >= 500 or (failure and failure != "none"):
-                        anomaly_count += 1
+                else:
+                    # We have subsequent logs — analyze them
+                    # Analyze subsequent logs for anomaly signals
+                    anomaly_count = 0
+                    for slog in subsequent_logs:
+                        status = slog.get("status_code", 200)
+                        failure = slog.get("failure_tag", "none")
+                        if status >= 500 or (failure and failure != "none"):
+                            anomaly_count += 1
 
-                failure_rate = (
-                    anomaly_count / len(subsequent_logs)
-                    if subsequent_logs else 0
-                )
-
-                # ── Dual verification conditions ──
-
-                # Condition 1: failure rate below threshold
-                # in the total window
-                rate_ok = failure_rate <= \
-                    settings.VERIFICATION_FAILURE_RATE_THRESHOLD
-
-                # Condition 2: no failure_tag != none in the
-                # clean window (last N seconds)
-                clean_cutoff = datetime.now(timezone.utc) - \
-                    timedelta(
-                        seconds=settings.VERIFICATION_CLEAN_WINDOW_SECONDS
+                    failure_rate = (
+                        anomaly_count / len(subsequent_logs)
+                        if subsequent_logs else 0
                     )
-                recent_with_failure = [
-                    log for log in subsequent_logs
-                    if log.get("failure_tag", "none") != "none"
-                    and _parse_timestamp(
-                        log.get("timestamp", "")
-                    ) >= clean_cutoff
-                ]
-                clean_ok = len(recent_with_failure) == 0
 
-                healing_succeeded = rate_ok and clean_ok
+                    # ── Dual verification conditions ──
+
+                    # Condition 1: failure rate below threshold
+                    # in the total window
+                    rate_ok = failure_rate <= \
+                        settings.VERIFICATION_FAILURE_RATE_THRESHOLD
+
+                    # Condition 2: no failure_tag != none in the
+                    # clean window (last N seconds)
+                    clean_cutoff = datetime.now(timezone.utc) - \
+                        timedelta(
+                            seconds=settings.VERIFICATION_CLEAN_WINDOW_SECONDS
+                        )
+                    recent_with_failure = [
+                        log for log in subsequent_logs
+                        if log.get("failure_tag", "none") != "none"
+                        and _parse_timestamp(
+                            log.get("timestamp", "")
+                        ) >= clean_cutoff
+                    ]
+                    clean_ok = len(recent_with_failure) == 0
+
+                    healing_succeeded = rate_ok and clean_ok
 
                 if healing_succeeded:
                     # ✅ Healing verified — anomaly resolved
-                    pv["outcomes"].append("SUCCESS")
+                    if "SUCCESS" not in pv["outcomes"]:
+                        pv["outcomes"].append("SUCCESS")
 
                     # Calculate time to heal
                     try:
@@ -255,7 +314,10 @@ async def verification_worker_loop():
                     # Update pipeline stage
                     try:
                         stage_val = "healing_complete"
-                        msg_val = "Healing complete, system healthy"
+                        msg_val = (
+                            "Verification complete \u2014 "
+                            "system is healthy and operational"
+                        )
                         timestamp_val = datetime.now(timezone.utc).isoformat()
                         await r.set(
                             settings.PIPELINE_STAGE_KEY,
@@ -275,6 +337,13 @@ async def verification_worker_loop():
                         }
                         await r.lpush("pipeline:events", json.dumps(event))
                         await r.ltrim("pipeline:events", 0, 99)
+                    except Exception:
+                        pass
+
+                    # Clear execution lock so system can heal
+                    # again for future incidents
+                    try:
+                        await r.delete("healing:execution_lock")
                     except Exception:
                         pass
 
@@ -326,6 +395,14 @@ async def verification_worker_loop():
                             }
                             await r.lpush("pipeline:events", json.dumps(event))
                             await r.ltrim("pipeline:events", 0, 99)
+                        except Exception:
+                            pass
+
+                        # Clear execution lock on escalation
+                        try:
+                            await r.delete(
+                                "healing:execution_lock"
+                            )
                         except Exception:
                             pass
 
