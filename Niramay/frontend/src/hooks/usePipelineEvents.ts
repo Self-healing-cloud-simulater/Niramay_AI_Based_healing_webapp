@@ -10,6 +10,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { PipelineEvent } from '../designSystem';
 import { useToast } from '../components/ToastNotification';
 
+// Module-level singletons so multiple mounted instances (dashboard + visualizer
+// pre-rendered side-by-side) never fire the same toast twice.
+let _lastToastedStage: string | null = null;
+let _firstHealShown = false;
+
 const STAGE_LABELS: Record<string, string> = {
   stage_1_complete: 'Ingestion',
   stage_2_complete: 'Detection',
@@ -61,7 +66,10 @@ function deriveNodeStates(currentStage: string | null, events: PipelineEvent[]):
     { label: 'Detection',    matchStages: ['stage_2_complete'] },
     { label: 'Analysis',     matchStages: ['stage_3_causal_engine_running', 'stage_3_complete'] },
     { label: 'Healing',      matchStages: ['stage_4_healing_executing', 'stage_4_healing_complete', 'stage_5_cooldown', 'stage_4_awaiting_approval'] },
-    { label: 'Verification', matchStages: ['stage_6_verification_running', 'healing_complete', 'healing_failed_escalated', 'healing_failed_email_sent'] },
+    // Only include the in-progress stage here. Terminal stages (healing_complete,
+    // healing_failed_*) are handled by the failed-flag check and currentIdx > nodeMaxIdx
+    // logic, which correctly yields 'completed' / 'failed' without making the node 'active'.
+    { label: 'Verification', matchStages: ['stage_6_verification_running'] },
   ];
 
   const stageOrder = [
@@ -99,22 +107,29 @@ function deriveNodeStates(currentStage: string | null, events: PipelineEvent[]):
 export function usePipelineEvents(enabled = true) {
   const [events, setEvents] = useState<PipelineEvent[]>([]);
   const [currentStage, setCurrentStage] = useState<string | null>(null);
+  const [stageTimestamp, setStageTimestamp] = useState<string | null>(null);
+  const [stageHealingAction, setStageHealingAction] = useState<string | null>(null);
   const [nodeStates, setNodeStates] = useState<PipelineNodeStatus[]>(
     ['Ingestion', 'Detection', 'Analysis', 'Healing', 'Verification'].map(label => ({ label, state: 'idle' as NodeState }))
   );
 
   // Stage transition tracking for toast notifications
   const prevStageRef = useRef<string | null>(null);
-  // Track whether the first healing notification has been shown (once per session)
-  const firstHealShownRef = useRef(false);
   const { addToast } = useToast();
 
+  // Incremented on every fetch; responses that arrive out-of-order are discarded.
+  const fetchIdRef = useRef(0);
+
   const fetchEvents = useCallback(async () => {
+    const fetchId = ++fetchIdRef.current;
     try {
       const [eventsRes, stageRes] = await Promise.allSettled([
         fetch('/api/v1/pipeline/events?limit=20'),
         fetch('/api/v1/pipeline/stage'),
       ]);
+
+      // Discard stale response if a newer fetch has already resolved
+      if (fetchId !== fetchIdRef.current) return;
 
       let fetchedEvents: PipelineEvent[] = [];
       if (eventsRes.status === 'fulfilled' && eventsRes.value.ok) {
@@ -126,37 +141,39 @@ export function usePipelineEvents(enabled = true) {
         const stageData = await stageRes.value.json();
         const s: string | null = stageData?.stage ?? null;
         setCurrentStage(s);
+        setStageTimestamp(stageData?.timestamp ?? null);
+        setStageHealingAction(stageData?.healing_action ?? null);
         setNodeStates(deriveNodeStates(s, fetchedEvents));
 
         // ── Stage Transition Toast Notifications ──
-        // Fire exactly ONE toast per stage change, using the
-        // direct STAGE_TOAST_MESSAGES lookup. This guarantees
-        // the toast always matches what the pipeline bar shows.
+        // Fire exactly ONE toast per stage change. Module-level _lastToastedStage
+        // deduplicates across multiple hook instances (dashboard + visualizer both
+        // mounted simultaneously) so the user never sees the same toast twice.
         if (s && s !== prevStageRef.current && s !== 'idle' && s !== 'unknown') {
           const prevStage = prevStageRef.current;
           prevStageRef.current = s;
 
-          // Skip toast on initial page load (no previous stage)
-          // to avoid stale notifications from the last run
-          if (!prevStage) {
+          // Skip toast on initial page load to avoid stale notifications
+          if (!prevStage) return;
+
+          // Already toasted this stage from another hook instance — skip
+          if (s === _lastToastedStage) return;
+          _lastToastedStage = s;
+
+          // First-ever healing notification (once per session, across all instances)
+          if (s === 'stage_4_healing_executing' && !_firstHealShown) {
+            _firstHealShown = true;
+            addToast('🔧 First Healing Initiated — Autonomous remediation has begun', 'success');
             return;
           }
 
-          // First-ever healing notification (once per session)
-          if (s === 'stage_4_healing_executing' && !firstHealShownRef.current) {
-            firstHealShownRef.current = true;
-            addToast('🔧 First Healing Initiated — Autonomous remediation has begun', 'success');
-            return; // Don't also show the regular healing toast
-          }
-
-          // Direct lookup — one message per stage, always in sync with pipeline bar
           const toastDef = STAGE_TOAST_MESSAGES[s];
           if (toastDef) {
             addToast(toastDef.message, toastDef.kind);
           }
         }
 
-        // Track when stage goes to idle/null from an active stage
+        // Track stage resetting to idle
         if ((!s || s === 'idle') && prevStageRef.current && prevStageRef.current !== 'idle' && prevStageRef.current !== 'unknown') {
           prevStageRef.current = s;
         }
@@ -166,17 +183,22 @@ export function usePipelineEvents(enabled = true) {
     }
   }, [addToast]);
 
+  // Poll every 1s during timed stages (cooldown / verification) for fast confirmation;
+  // 2s otherwise. The interval is recreated whenever currentStage changes.
+  const isTimedStage =
+    currentStage === 'stage_5_cooldown' || currentStage === 'stage_6_verification_running';
+
   useEffect(() => {
     if (!enabled) return;
     fetchEvents();
-    const id = setInterval(fetchEvents, 2000);
+    const id = setInterval(fetchEvents, isTimedStage ? 1000 : 2000);
     return () => clearInterval(id);
-  }, [enabled, fetchEvents]);
+  }, [enabled, fetchEvents, isTimedStage]);
 
   const currentStageLabel =
     !currentStage || currentStage === 'idle' || currentStage === 'unknown'
       ? 'Waiting'
       : (STAGE_LABELS[currentStage] ?? 'Waiting');
 
-  return { events, currentStage, currentStageLabel, nodeStates };
+  return { events, currentStage, currentStageLabel, nodeStates, stageTimestamp, stageHealingAction, refetch: fetchEvents };
 }

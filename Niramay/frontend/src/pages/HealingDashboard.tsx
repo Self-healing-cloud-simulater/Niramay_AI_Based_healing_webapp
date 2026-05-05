@@ -31,9 +31,12 @@ const API = '';
 
 type TriggerState = 'idle' | 'loading' | 'success' | 'error';
 
-export default function HealingDashboard() {
+export default function HealingDashboard({ isActive = true }: { isActive?: boolean }) {
   const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  // Stable ref so the scroll handler can check visibility without re-registration
+  const isActiveRef = useRef(isActive);
+  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
   const {
     logs,
     anomalies,
@@ -86,10 +89,11 @@ export default function HealingDashboard() {
   const [showBackToTop, setShowBackToTop] = useState(false);
   const heroRef = useRef<HTMLDivElement>(null);
 
-  // Scroll tracking
+  // Scroll tracking — skipped when this view is hidden behind display:none
   useEffect(() => {
     let ticking = false;
     const fn = () => {
+      if (!isActiveRef.current) return;
       if (ticking) return;
       ticking = true;
       requestAnimationFrame(() => {
@@ -97,11 +101,9 @@ export default function HealingDashboard() {
         setScrolled(y > 24);
         setShowBackToTop(y > 400);
 
-        // Progress
         const docH = document.documentElement.scrollHeight - window.innerHeight;
         setScrollProgress(docH > 0 ? (y / docH) * 100 : 0);
 
-        // Parallax on hero
         if (heroRef.current) {
           heroRef.current.style.transform = `translateY(${y * 0.3}px)`;
         }
@@ -112,6 +114,16 @@ export default function HealingDashboard() {
     window.addEventListener('scroll', fn, { passive: true });
     return () => window.removeEventListener('scroll', fn);
   }, []);
+
+  // Re-sync scroll state the moment this view becomes active again
+  useEffect(() => {
+    if (!isActive) return;
+    const y = window.scrollY;
+    setScrolled(y > 24);
+    setShowBackToTop(y > 400);
+    const docH = document.documentElement.scrollHeight - window.innerHeight;
+    setScrollProgress(docH > 0 ? (y / docH) * 100 : 0);
+  }, [isActive]);
 
   const scrollToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
