@@ -25,7 +25,7 @@ function MetricsBar({ metrics, isLive, setIsLive, lastRefresh, fetchData }: {
   const items = [
     { label: 'Requests', value: metrics.totalRequests, color: 'var(--color-text-primary)' },
     { label: 'Success', value: `${metrics.successRate}%`, color: 'var(--color-status-success)' },
-    { label: 'Latency', value: `${metrics.avgLatency}ms`, color: 'var(--color-text-primary)' },
+    { label: 'Latency', value: `${metrics.avgLatency}`, color: 'var(--color-text-primary)' },
     { label: 'Anomalies', value: metrics.activeAnomalies, color: metrics.activeAnomalies > 0 ? 'var(--color-status-warning)' : 'var(--color-text-primary)' },
     { label: 'Healed', value: metrics.totalHealed, color: metrics.totalHealed > 0 ? 'var(--color-status-success)' : 'var(--color-text-primary)' },
   ];
