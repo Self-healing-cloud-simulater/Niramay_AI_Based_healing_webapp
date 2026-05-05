@@ -83,30 +83,26 @@ def _push_consumer_event(event_type: str, message: str):
         pass  # Non-critical
 
 
-def _on_message(channel, method_frame, header_frame, body):
-    """
-    Callback for each consumed message.
-
-    Flow: Normalize → OpenSearch → Redis (logs + detection queue)
-    """
+    # Acknowledge the message
     try:
-        raw_message = body.decode("utf-8")
-    except Exception:
-        raw_message = str(body)
+        channel.basic_ack(delivery_tag=method_frame.delivery_tag)
+    except Exception as e:
+        logger.warning("Failed to ack message", error=str(e))
 
+
+def process_raw_log(raw_message: str) -> dict:
+    """
+    Core log processing logic: Normalize → OpenSearch → Redis.
+    Shared between RabbitMQ consumer and POST /observe API.
+    """
     # ── Step 0: Write raw message to OpenSearch before normalization ──
-    # This stores exactly what CRAVE sent for debugging
     try:
         opensearch_writer.write_raw_log(
             raw_message=raw_message,
-            queue="component-c-logs"
+            queue="api-direct" if "/observe" in raw_message else "component-c-logs"
         )
     except Exception as e:
-        logger.warning(
-            "Failed to write raw log to OpenSearch",
-            error=str(e)
-        )
-    # Continue with normalization regardless
+        logger.warning("Failed to write raw log to OpenSearch", error=str(e))
 
     # ── Step 1: Normalize ──
     normalized = normalize_log(raw_message)
@@ -122,36 +118,27 @@ def _on_message(channel, method_frame, header_frame, body):
         r = get_sync_redis()
         log_json = json.dumps(normalized)
 
-        # Push to observation:logs (real-time feed for frontend API)
+        # Push to observation:logs (real-time feed)
         r.lpush(REDIS_OBSERVATION_LOGS, log_json)
         r.ltrim(REDIS_OBSERVATION_LOGS, 0, REDIS_LOGS_CAP - 1)
 
         # Push to observation:pending_detection (detection worker queue)
         r.rpush(REDIS_PENDING_DETECTION, log_json)
 
-        # Update pipeline stage key every N logs to avoid drowning
-        # out stage_2/3/4 updates from detection/healing workers.
+        # Update pipeline stage key every N logs
         global _log_count_since_stage_update
         _log_count_since_stage_update += 1
         if _log_count_since_stage_update >= _STAGE_UPDATE_INTERVAL:
             _log_count_since_stage_update = 0
             try:
-                # Guard: only write stage_1_complete if pipeline
-                # is idle or still at stage_1. Never overwrite
-                # later stages (detection, healing, verification).
                 _safe_to_write = True
                 try:
                     _current_raw = r.get(settings.PIPELINE_STAGE_KEY)
                     if _current_raw:
-                        _current_stage = json.loads(
-                            _current_raw
-                        ).get("stage")
-                        _safe_to_write = _current_stage in (
-                            None, "idle", "unknown",
-                            "stage_1_complete",
-                        )
+                        _current_stage = json.loads(_current_raw).get("stage")
+                        _safe_to_write = _current_stage in (None, "idle", "unknown", "stage_1_complete")
                 except Exception:
-                    pass  # If check fails, allow write
+                    pass
 
                 if _safe_to_write:
                     stage_val = "stage_1_complete"
@@ -160,26 +147,36 @@ def _on_message(channel, method_frame, header_frame, body):
                         settings.PIPELINE_STAGE_KEY,
                         json.dumps({
                             "stage": stage_val,
-                            "timestamp": datetime.now(
-                                timezone.utc).isoformat(),
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
                             "message": msg_val
                         })
                     )
                     from app.core.redis_client import push_pipeline_event
-                    push_pipeline_event(
-                        "ingestion_complete", stage_val, msg_val
-                    )
+                    push_pipeline_event("ingestion_complete", stage_val, msg_val)
             except Exception:
-                pass  # Never block pipeline for UI updates
-
+                pass
     except Exception as e:
         logger.warning("Failed to push to Redis", error=str(e))
 
-    # Update consumer state
+    # Update consumer state (shared even for API logs)
     with _consumer_lock:
         _consumer_state["messages_consumed"] += 1
-        _consumer_state["last_message_at"] = datetime.now(
-            timezone.utc).isoformat()
+        _consumer_state["last_message_at"] = datetime.now(timezone.utc).isoformat()
+
+    return normalized
+
+
+def _on_message(channel, method_frame, header_frame, body):
+    """
+    Callback for each consumed message.
+    """
+    try:
+        raw_message = body.decode("utf-8")
+    except Exception:
+        raw_message = str(body)
+
+    # Process using the shared logic
+    process_raw_log(raw_message)
 
     # Acknowledge the message
     try:

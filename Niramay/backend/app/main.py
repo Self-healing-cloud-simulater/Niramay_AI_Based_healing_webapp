@@ -180,10 +180,10 @@ async def startup_event():
     except Exception as e:
         logger.warning("OpenSearch initialization failed (non-fatal)", error=str(e))
 
-    # ── RabbitMQ consumer is NOT auto-started ──
-    # It must be started via the frontend toggle button.
-    # This ensures the user has control over when ingestion begins.
-    logger.info("RabbitMQ consumer NOT auto-started — use frontend toggle to start")
+    # ── RabbitMQ consumer is auto-started ──
+    from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer
+    start_rabbitmq_consumer()
+    logger.info("RabbitMQ consumer started automatically")
 
     # ── Silence detection checker is NOT started at boot ──
     # It would generate false anomalies when the consumer is OFF.
