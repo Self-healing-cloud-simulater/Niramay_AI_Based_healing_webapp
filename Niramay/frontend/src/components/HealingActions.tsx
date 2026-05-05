@@ -12,18 +12,47 @@ import { SkeletonRow } from './SkeletonBlock';
 function ActionIcon({ action }: { action: string }) {
   const s = 15;
   const stroke = 'var(--color-accent-primary)';
+  const props = { width: s, height: s, viewBox: "0 0 16 16", fill: "none", stroke, strokeWidth: "1.3", strokeLinecap: "round" as const };
+
+  if (action === 'restart_service') return (
+    <svg {...props}>
+      <path d="M13 8A5 5 0 1 1 8 3" /><polyline points="13 3 13 8 8 8" />
+    </svg>
+  );
+  if (action === 'scale_up') return (
+    <svg {...props}>
+      <line x1="8" y1="13" x2="8" y2="3" /><polyline points="4 7 8 3 12 7" />
+      <line x1="4" y1="13" x2="12" y2="13" />
+    </svg>
+  );
+  if (action === 'rollback_deployment') return (
+    <svg {...props}>
+      <path d="M3 8A5 5 0 1 0 8 3" /><polyline points="3 3 3 8 8 8" />
+    </svg>
+  );
+  if (action === 'circuit_breaker') return (
+    <svg {...props}>
+      <path d="M9 2L7 9h4L9 14" strokeLinejoin="round" />
+    </svg>
+  );
+  if (action === 'flush_cache') return (
+    <svg {...props}>
+      <polyline points="3 6 5 6 13 6" /><path d="M4 6l1 8a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2l1-8" />
+      <path d="M7 6V4a1 1 0 0 1 1-1h0a1 1 0 0 1 1 1v2" />
+    </svg>
+  );
   if (action === 'throttle_requests') return (
-    <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={stroke} strokeWidth="1.3" strokeLinecap="round">
+    <svg {...props}>
       <rect x="2" y="2" width="12" height="12" rx="2" /><path d="M2 8h12M8 2v12" />
     </svg>
   );
   if (action === 'fallback_response') return (
-    <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={stroke} strokeWidth="1.3" strokeLinecap="round">
+    <svg {...props}>
       <path d="M1 8h14M1 8l4-4M1 8l4 4" />
     </svg>
   );
   return (
-    <svg width={s} height={s} viewBox="0 0 16 16" fill="none" stroke={stroke} strokeWidth="1.3" strokeLinecap="round">
+    <svg {...props}>
       <circle cx="8" cy="8" r="6" /><line x1="8" y1="5" x2="8" y2="8" /><line x1="8" y1="8" x2="10" y2="10" />
     </svg>
   );
@@ -188,6 +217,35 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                     }}>
                       {a.service && <span>Service: {a.service}</span>}
                       {a.container_restarted && <span>Container: {a.container_restarted}</span>}
+                    </div>
+                  )}
+
+                  {/* K3s result detail — shown when K3s healing fields are present */}
+                  {(a.new_replicas != null || a.rolled_back_to || a.original_replicas != null || a.throttled_replicas != null) && (
+                    <div style={{
+                      display: 'flex',
+                      gap: 'var(--space-3)',
+                      marginTop: 'var(--space-1)',
+                      fontSize: 10,
+                      color: 'var(--color-text-tertiary)',
+                      fontFamily: 'var(--font-mono)',
+                      flexWrap: 'wrap',
+                    }}>
+                      {a.new_replicas != null && a.previous_replicas != null && (
+                        <span>Replicas: {a.previous_replicas} → {a.new_replicas}</span>
+                      )}
+                      {a.throttled_replicas != null && a.previous_replicas != null && (
+                        <span>Throttled: {a.previous_replicas} → {a.throttled_replicas}</span>
+                      )}
+                      {a.original_replicas != null && a.circuit_duration != null && (
+                        <span>Circuit open {a.circuit_duration}s (restores to {a.original_replicas})</span>
+                      )}
+                      {a.rolled_back_to && (
+                        <span>Rolled back to: {a.rolled_back_to}</span>
+                      )}
+                      {a.k3s_deployment && (
+                        <span>Deployment: {a.k3s_deployment}</span>
+                      )}
                     </div>
                   )}
 
