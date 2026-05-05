@@ -318,6 +318,7 @@ def stop_rabbitmq_consumer():
         with _consumer_lock:
             _consumer_state["running"] = False
             _consumer_state["connected"] = False
+        _reset_pipeline_stage_to_idle()
         return
 
     _stop_event.set()
@@ -333,4 +334,23 @@ def stop_rabbitmq_consumer():
     _consumer_thread = None
     _connection_ref = None
 
+    _reset_pipeline_stage_to_idle()
     logger.info("RabbitMQ consumer stopped")
+
+
+def _reset_pipeline_stage_to_idle():
+    """Reset the pipeline stage Redis key to idle after consumer stops."""
+    try:
+        from app.core.config import settings
+        r = get_sync_redis()
+        import json
+        r.set(
+            settings.PIPELINE_STAGE_KEY,
+            json.dumps({
+                "stage": "idle",
+                "message": "Consumer stopped — waiting for activity",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            })
+        )
+    except Exception:
+        pass

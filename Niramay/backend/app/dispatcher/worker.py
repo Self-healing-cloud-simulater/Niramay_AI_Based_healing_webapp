@@ -47,8 +47,8 @@ HEALING_KEY = "healing:actions"
 LIST_CAP = 1000
 
 # Storm prevention constants
-WINDOW_DURATION_SECONDS = 20
-MIN_ALERTS_TO_HEAL = 3
+WINDOW_DURATION_SECONDS = 30   # aligned with detection worker's 30s window
+MIN_ALERTS_TO_HEAL = 1         # lowered: detection already batches, so 1 representative = valid
 COOLDOWN_DURATION_SECONDS = 90
 COOLDOWN_KEY_PREFIX = "healing:cooldown:"
 

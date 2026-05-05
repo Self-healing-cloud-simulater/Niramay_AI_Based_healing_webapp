@@ -431,6 +431,8 @@ function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any })
 function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>['healingActions'] }) {
   const { isDark } = useTheme();
   const seenRef = useRef<Set<string>>(new Set());
+  // Only show actual healing outcomes — filter out batched/suppressed/skipped records
+  const visibleActions = actions.filter(a => a.status === 'success' || a.status === 'failed');
   return (
     <div className="glow-card" style={{
       flex: 1,
@@ -460,8 +462,11 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
             Autonomous Healing
           </span>
         </div>
-        {actions.length > 0 && (
-          <span className="badge badge-success" style={{ fontSize: 10 }}>{actions.length} healed</span>
+        {visibleActions.filter(a => a.status === 'success').length > 0 && (
+          <span className="badge badge-success" style={{ fontSize: 10 }}>{visibleActions.filter(a => a.status === 'success').length} healed</span>
+        )}
+        {visibleActions.filter(a => a.status === 'failed').length > 0 && (
+          <span className="badge badge-error" style={{ fontSize: 10 }}>{visibleActions.filter(a => a.status === 'failed').length} failed</span>
         )}
       </div>
 
@@ -485,7 +490,7 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
         maxHeight: 380,
       }}>
         <AnimatePresence initial={false}>
-          {actions.slice(0, 20).map((action, i) => {
+          {visibleActions.slice(0, 20).map((action, i) => {
             const hk = action.alert_id || `${action.timestamp}-${i}`;
             const isNew = !seenRef.current.has(hk);
             if (isNew) seenRef.current.add(hk);
@@ -509,20 +514,19 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
                 width: 26,
                 height: 26,
                 borderRadius: 'var(--radius-md)',
-                background: action.status === 'success' ? 'rgba(0, 255, 136, 0.08)' : 'rgba(255, 140, 66, 0.08)',
+                background: action.status === 'success' ? 'rgba(0, 255, 136, 0.08)' : 'rgba(255, 60, 60, 0.08)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
               }}>
-                {action.healing_action === 'restart_service' ? (
+                {action.status === 'success' ? (
                   <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--color-status-success)" strokeWidth="1.5" strokeLinecap="round">
-                    <path d="M1 8a7 7 0 0 1 13.2-3.2" /><path d="M15 8a7 7 0 0 1-13.2 3.2" />
-                    <polyline points="1,3 1,8 5,7" /><polyline points="15,13 15,8 11,9" />
+                    <path d="M4 8l3 3 5-6" /><circle cx="8" cy="8" r="6" />
                   </svg>
                 ) : (
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--color-status-success)" strokeWidth="1.5" strokeLinecap="round">
-                    <polyline points="1,1 1,6 6,6" /><path d="M1 6 C3 3, 6 1, 8 1 a7 7 0 1 1-5 12" />
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--color-status-error)" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M4 4l8 8M12 4l-8 8" /><circle cx="8" cy="8" r="6" />
                   </svg>
                 )}
               </div>
@@ -534,7 +538,6 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
                   color: 'var(--color-text-primary)',
                   fontFamily: 'var(--font-mono)',
                 }}>
-                  <span style={{ color: 'var(--color-text-tertiary)' }}>Executing: </span>
                   {action.healing_action.replace(/_/g, ' ')}
                 </div>
                 <div className="reveal-on-hover" style={{
@@ -546,12 +549,12 @@ function HealingOutput({ actions }: { actions: ReturnType<typeof useNiramayData>
                 </div>
               </div>
 
-              {/* Status */}
-              <span className={`badge ${action.status === 'success' ? 'badge-success' : 'badge-warning'}`} style={{
+              {/* Status — only Healed or Failed */}
+              <span className={`badge ${action.status === 'success' ? 'badge-success' : 'badge-error'}`} style={{
                 fontSize: 9,
                 padding: '1px 8px',
               }}>
-                {action.status === 'success' ? 'Healed' : action.status}
+                {action.status === 'success' ? 'Healed' : 'Failed'}
               </span>
             </motion.div>
             );

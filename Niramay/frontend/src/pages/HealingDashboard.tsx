@@ -12,7 +12,6 @@ import axios from 'axios';
 import { useTheme, createRipple, type ObservationLog, type AnomalyLog, type HealingAction } from '../designSystem';
 import { useNiramayData, usePipelineStage, useConsumerControl, useHealingToggle } from '../hooks/useNiramayData';
 import StatCard from '../components/StatCard';
-import ThemeToggle from '../components/Toggle';
 import ObservationFeed from '../components/ObservationFeed';
 import DetectionAlerts from '../components/DetectionAlerts';
 import HealingActionsPanel from '../components/HealingActions';
@@ -33,7 +32,7 @@ const API = '';
 type TriggerState = 'idle' | 'loading' | 'success' | 'error';
 
 export default function HealingDashboard() {
-  const { isDark } = useTheme();
+  const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const {
     logs,
@@ -308,8 +307,23 @@ export default function HealingDashboard() {
             {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
 
-          {/* Theme toggle */}
-          <ThemeToggle />
+          {/* Theme toggle — simple icon */}
+          <button
+            onClick={toggleTheme}
+            className="btn-icon"
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                <circle cx="8" cy="8" r="3.5" />
+                <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                <path d="M13.5 8.5a5.5 5.5 0 0 1-6-6A5.5 5.5 0 1 0 13.5 8.5Z" />
+              </svg>
+            )}
+          </button>
         </div>
       </nav>
 

@@ -30,7 +30,9 @@ function ActionIcon({ action }: { action: string }) {
 }
 
 export default function HealingActionsPanel({ actions }: { actions: HealingAction[] }) {
-  const byType = (actions || []).reduce<Record<string, number>>((acc, x) => {
+  // Filter out batched/suppressed/skipped — only show real healing outcomes
+  const visibleActions = (actions || []).filter(a => a && (a.status === 'success' || a.status === 'failed'));
+  const byType = visibleActions.reduce<Record<string, number>>((acc, x) => {
     if (x && x.healing_action) {
       acc[x.healing_action] = (acc[x.healing_action] || 0) + 1;
     }
@@ -61,8 +63,8 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
         }}>
           Healing
         </span>
-        {actions.length > 0 && (
-          <span className="badge badge-success">{actions.length} healed</span>
+        {visibleActions.length > 0 && (
+          <span className="badge badge-success">{visibleActions.length} healed</span>
         )}
       </div>
 
@@ -94,11 +96,11 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
         maxHeight: 360,
         overflowY: 'auto',
       }}>
-        {actions.length === 0 ? (
+        {visibleActions.length === 0 ? (
           <EmptyState headline="No healing actions yet" />
         ) : (
           <AnimatePresence initial={false}>
-            {(actions || []).map((a, i) => 
+            {visibleActions.map((a, i) => 
               a ? (
                 <motion.div
                   key={`${a.timestamp}-${i}`}
@@ -164,12 +166,14 @@ export default function HealingActionsPanel({ actions }: { actions: HealingActio
                           Attempt {a.retry_count + 1}
                         </span>
                       )}
-                      {a.verification_status !== 'PENDING' && (
+                      {(a.verification_status === 'SUCCESS' || a.verification_status === 'HEALED'
+                        || a.verification_status === 'FAILED' || a.verification_status === 'ESCALATED') && (
                         <span className={`badge badge-${
                           a.verification_status === 'SUCCESS' || a.verification_status === 'HEALED'
                             ? 'success' : 'error'
                         }`} style={{ fontSize: 9, padding: '1px 4px' }}>
-                          {a.verification_status}
+                          {a.verification_status === 'SUCCESS' || a.verification_status === 'HEALED'
+                            ? 'PASSED' : 'FAILED'}
                         </span>
                       )}
                       <span className={`dot dot-${a.status === 'success' ? 'success' : a.status === 'failed' ? 'error' : 'warning'}`} />

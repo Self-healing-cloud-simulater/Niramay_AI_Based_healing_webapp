@@ -9,6 +9,7 @@
  * Node states: idle | active (pulse) | completed (✓) | failed (✕)
  */
 
+import { useState } from 'react';
 import { usePipelineEvents } from '../hooks/usePipelineEvents';
 import type { NodeState } from '../hooks/usePipelineEvents';
 import type { PipelineEvent } from '../designSystem';
@@ -62,6 +63,7 @@ function formatEventTime(ts: string): string {
 
 export default function PipelineProgressBar() {
   const { events, currentStageLabel, nodeStates } = usePipelineEvents(true);
+  const [eventsExpanded, setEventsExpanded] = useState(false);
 
   return (
     <div style={{
@@ -82,11 +84,11 @@ export default function PipelineProgressBar() {
         <span style={{
           fontSize: 10, padding: '2px 10px',
           borderRadius: 'var(--radius-full)',
-          background: currentStageLabel === 'Idle'
+          background: currentStageLabel === 'Waiting'
             ? 'var(--color-accent-tertiary)'
             : 'rgba(212,132,94,0.1)',
-          border: `1px solid ${currentStageLabel === 'Idle' ? 'var(--color-border-subtle)' : 'rgba(212,132,94,0.25)'}`,
-          color: currentStageLabel === 'Idle' ? 'var(--color-text-tertiary)' : 'var(--color-accent-primary)',
+          border: `1px solid ${currentStageLabel === 'Waiting' ? 'var(--color-border-subtle)' : 'rgba(212,132,94,0.25)'}`,
+          color: currentStageLabel === 'Waiting' ? 'var(--color-text-tertiary)' : 'var(--color-accent-primary)',
           fontWeight: 600,
           letterSpacing: 'var(--tracking-wider)',
         }}>
@@ -134,30 +136,62 @@ export default function PipelineProgressBar() {
         ))}
       </div>
 
-      {/* Live event feed */}
-      <ol
-        aria-live="polite"
-        aria-label="Pipeline events"
-        style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}
+      {/* Live event feed — collapsible */}
+      <button
+        onClick={() => setEventsExpanded(v => !v)}
+        aria-expanded={eventsExpanded}
+        aria-controls="pipeline-events-list"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          background: 'none',
+          border: 'none',
+          padding: '2px 0',
+          cursor: 'pointer',
+          color: 'var(--color-text-tertiary)',
+          fontSize: 10,
+          letterSpacing: 'var(--tracking-wider)',
+          textTransform: 'uppercase',
+          marginBottom: eventsExpanded ? 'var(--space-2)' : 0,
+        }}
       >
-        {events.length === 0 ? (
-          <li style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
-            No events yet — waiting for pipeline activity.
-          </li>
-        ) : (
-          events.slice(0, 8).map((ev, i) => (
-            <li key={`${ev.timestamp}-${i}`} style={{
-              fontSize: 'var(--text-xs)',
-              color: eventColor(ev),
-              fontFamily: 'var(--font-mono)',
-              lineHeight: 'var(--leading-normal)',
-            }}>
-              <span style={{ color: 'var(--color-text-tertiary)', marginRight: 8 }}>{formatEventTime(ev.timestamp)}</span>
-              {ev.message || `${ev.event_type} — ${ev.stage}`}
+        <svg
+          width="10" height="10" viewBox="0 0 10 10" fill="none"
+          stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
+          style={{ transition: 'transform 200ms', transform: eventsExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        >
+          <path d="M2 3.5l3 3 3-3" />
+        </svg>
+        Events {events.length > 0 ? `(${Math.min(events.length, 8)})` : ''}
+      </button>
+
+      {eventsExpanded && (
+        <ol
+          id="pipeline-events-list"
+          aria-live="polite"
+          aria-label="Pipeline events"
+          style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 2 }}
+        >
+          {events.length === 0 ? (
+            <li style={{ fontSize: 'var(--text-xs)', color: 'var(--color-text-tertiary)', fontStyle: 'italic' }}>
+              No events yet — waiting for pipeline activity.
             </li>
-          ))
-        )}
-      </ol>
+          ) : (
+            events.slice(0, 8).map((ev, i) => (
+              <li key={`${ev.timestamp}-${i}`} style={{
+                fontSize: 'var(--text-xs)',
+                color: eventColor(ev),
+                fontFamily: 'var(--font-mono)',
+                lineHeight: 'var(--leading-normal)',
+              }}>
+                <span style={{ color: 'var(--color-text-tertiary)', marginRight: 8 }}>{formatEventTime(ev.timestamp)}</span>
+                {ev.message || `${ev.event_type} — ${ev.stage}`}
+              </li>
+            ))
+          )}
+        </ol>
+      )}
 
       <style>{`
         @keyframes niramayPulse {

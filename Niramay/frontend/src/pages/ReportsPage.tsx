@@ -16,7 +16,7 @@ import type { GenerateReportPayload } from '../hooks/useReports';
 import type { Report } from '../designSystem';
 import { timeAgo } from '../designSystem';
 import { useToast } from '../components/ToastNotification';
-import ThemeToggle from '../components/Toggle';
+import { useTheme } from '../designSystem';
 
 const REPORT_TYPES = [
   { value: 'incident_summary', label: 'Incident Summary' },
@@ -42,6 +42,7 @@ function StatusBadge({ status }: { status: Report['status'] }) {
 
 export default function ReportsPage() {
   const { addToast } = useToast();
+  const { isDark, toggleTheme } = useTheme();
   const { reports, generating, generateError, generate, download } = useReports();
 
   const [form, setForm] = useState<GenerateReportPayload>({
@@ -89,7 +90,22 @@ export default function ReportsPage() {
           <Link to="/visualizer" style={{ color: 'var(--color-text-secondary)', textDecoration: 'none' }}>Visualizer</Link>
           <Link to="/reports" style={{ color: 'var(--color-accent-primary)', textDecoration: 'none', fontWeight: 600 }}>Reports</Link>
           <div style={{ borderLeft: '1px solid var(--color-border-subtle)', paddingLeft: 'var(--space-4)', marginLeft: 'var(--space-2)' }}>
-            <ThemeToggle />
+            <button
+              onClick={toggleTheme}
+              className="btn-icon"
+              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {isDark ? (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                  <circle cx="8" cy="8" r="3.5" />
+                  <path d="M8 1v1.5M8 13.5V15M1 8h1.5M13.5 8H15M3.05 3.05l1.06 1.06M11.89 11.89l1.06 1.06M3.05 12.95l1.06-1.06M11.89 4.11l1.06-1.06" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+                  <path d="M13.5 8.5a5.5 5.5 0 0 1-6-6A5.5 5.5 0 1 0 13.5 8.5Z" />
+                </svg>
+              )}
+            </button>
           </div>
         </div>
       </nav>
