@@ -97,6 +97,33 @@ async def toggle_healing(request: Request):
 # OBSERVATION LAYER — Real-time + History
 # ──────────────────────────────────────────────────────────────────────────────
 
+@router.post("/observe", tags=["Observation"])
+async def observe_log(request: Request):
+    """
+    Manually inject a log entry into the Niramay pipeline.
+    This pushes the log to RabbitMQ (Stage 1), ensuring it follows
+     the standard pipeline: RabbitMQ → Consumer → Redis.
+    """
+    try:
+        body = await request.body()
+        raw_message = body.decode("utf-8")
+        
+        from app.ingestion.rabbitmq_publisher import publish_to_rabbitmq
+        if publish_to_rabbitmq(raw_message):
+            return {"status": "accepted", "message": "Log published to RabbitMQ"}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "message": "Failed to publish to RabbitMQ"}
+            )
+    except Exception as e:
+        logger.error("Manual observation failed", error=str(e))
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": str(e)}
+        )
+
+
 @router.get("/observation/logs", tags=["Observation"])
 async def get_observation_logs(
     limit: int = Query(100, ge=1, le=1000, description="Number of logs to return"),
