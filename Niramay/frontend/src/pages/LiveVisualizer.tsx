@@ -409,7 +409,7 @@ function DetectionEngine({ anomalies, stats }: { anomalies: any[], stats: any })
                 paddingLeft: 'var(--space-4)',
                 flexWrap: 'wrap',
               }}>
-                {a.anomaly_reasons.map((r, ri) => (
+                {a.anomaly_reasons.map((r: string, ri: number) => (
                   <span key={ri} className="badge badge-neutral" style={{ fontSize: 9, padding: '0 6px' }}>
                     {r.replace(/_/g, ' ')}
                   </span>
