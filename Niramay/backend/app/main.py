@@ -148,9 +148,12 @@ def _flush_redis_data():
                     break
         except Exception:
             pass
-        # Set healing to disabled by default (user must enable)
+        # Set healing default based on HEALING_AUTO_ENABLE_ON_STARTUP
         try:
-            redis_client.set("healing:enabled", "0")
+            if settings.HEALING_AUTO_ENABLE_ON_STARTUP:
+                redis_client.set("healing:enabled", "1")
+            else:
+                redis_client.set("healing:enabled", "0")
         except Exception:
             pass
         logger.info("Redis data flushed for fresh start",
@@ -175,15 +178,22 @@ async def startup_event():
     except Exception as e:
         logger.warning("OpenSearch initialization failed (non-fatal)", error=str(e))
 
-    # ── RabbitMQ consumer is NOT auto-started ──
-    # It must be started via the frontend toggle button.
-    # This ensures the user has control over when ingestion begins.
-    logger.info("RabbitMQ consumer NOT auto-started — use frontend toggle to start")
+    # ── RabbitMQ consumer auto-start ──
+    if settings.HEALING_AUTO_ENABLE_ON_STARTUP:
+        # K3s mode: auto-start consumer and healing for autonomous operation
+        from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer
+        start_rabbitmq_consumer()
+        logger.info("RabbitMQ consumer AUTO-STARTED (HEALING_AUTO_ENABLE_ON_STARTUP=true)")
 
-    # ── Silence detection checker is NOT started at boot ──
-    # It would generate false anomalies when the consumer is OFF.
-    # It will be started when the consumer is toggled ON.
-    logger.info("Silence checker NOT auto-started — starts with consumer")
+        # Also update the in-memory healing toggle in the endpoints module
+        try:
+            from app.api.v1 import endpoints as ep
+            ep._healing_enabled = True
+        except Exception:
+            pass
+    else:
+        logger.info("RabbitMQ consumer NOT auto-started — use frontend toggle to start")
+        logger.info("Silence checker NOT auto-started — starts with consumer")
 
     # ── Start Detection Worker ──
     from app.detection.worker import start_detection_worker
