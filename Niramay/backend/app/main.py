@@ -186,17 +186,6 @@ async def startup_event():
     # ── RabbitMQ consumer is auto-started ──
     from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer
     start_rabbitmq_consumer()
-    logger.info("RabbitMQ consumer started automatically")
-
-        # Also update the in-memory healing toggle in the endpoints module
-        try:
-            from app.api.v1 import endpoints as ep
-            ep._healing_enabled = True
-        except Exception:
-            pass
-    else:
-        logger.info("RabbitMQ consumer NOT auto-started — use frontend toggle to start")
-        logger.info("Silence checker NOT auto-started — starts with consumer")
 
     # ── Start Detection Worker ──
     from app.detection.worker import start_detection_worker
