@@ -183,12 +183,10 @@ async def startup_event():
     except Exception as e:
         logger.warning("OpenSearch initialization failed (non-fatal)", error=str(e))
 
-    # ── RabbitMQ consumer auto-start ──
-    if settings.HEALING_AUTO_ENABLE_ON_STARTUP:
-        # K3s mode: auto-start consumer and healing for autonomous operation
-        from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer
-        start_rabbitmq_consumer()
-        logger.info("RabbitMQ consumer AUTO-STARTED (HEALING_AUTO_ENABLE_ON_STARTUP=true)")
+    # ── RabbitMQ consumer is auto-started ──
+    from app.ingestion.rabbitmq_consumer import start_rabbitmq_consumer
+    start_rabbitmq_consumer()
+    logger.info("RabbitMQ consumer started automatically")
 
         # Also update the in-memory healing toggle in the endpoints module
         try:
